@@ -6,6 +6,7 @@ use godot::prelude::*;
 use godot::classes::{
     PhysicsServer2DExtension, IPhysicsServer2DExtension,
     PhysicsDirectSpaceState2D, PhysicsDirectBodyState2D,
+    PhysicsDirectSpaceState2DExtension, IPhysicsDirectSpaceState2DExtension,
     PhysicsDirectBodyState2DExtension, IPhysicsDirectBodyState2DExtension,
     physics_server_2d, Object,
 };
@@ -40,6 +41,7 @@ struct RapierSpace {
     impulse_joint_set: rapier::ImpulseJointSet,
     multibody_joint_set: rapier::MultibodyJointSet,
     ccd_solver: rapier::CCDSolver,
+    query_pipeline: rapier::QueryPipeline,
     active: bool,
 }
 
@@ -60,6 +62,7 @@ impl RapierSpace {
             impulse_joint_set: rapier::ImpulseJointSet::new(),
             multibody_joint_set: rapier::MultibodyJointSet::new(),
             ccd_solver: rapier::CCDSolver::new(),
+            query_pipeline: rapier::QueryPipeline::new(),
             active: false,
         }
     }
@@ -260,6 +263,58 @@ impl IPhysicsDirectBodyState2DExtension for EvolveDirectBodyState {
     fn get_collision_layer(&self) -> u32 { 0 }
     fn set_collision_mask(&mut self, _mask: u32) { }
     fn get_collision_mask(&self) -> u32 { 0 }
+}
+
+// ── Direct space state ───────────────────────────────────────────────────────
+
+#[derive(GodotClass)]
+#[class(base=PhysicsDirectSpaceState2DExtension, tool)]
+pub struct EvolveDirectSpaceState {
+    base: Base<PhysicsDirectSpaceState2DExtension>,
+    space_rid: Rid,
+}
+
+#[godot_api]
+impl IPhysicsDirectSpaceState2DExtension for EvolveDirectSpaceState {
+    fn init(base: Base<PhysicsDirectSpaceState2DExtension>) -> Self {
+        Self { base, space_rid: Rid::Invalid }
+    }
+
+    unsafe fn intersect_ray_rawptr(
+        &mut self, _from: Vector2, _to: Vector2, _collision_mask: u32,
+        _collide_with_bodies: bool, _collide_with_areas: bool, _hit_from_inside: bool,
+        _result: RawPtr<*mut godot::classes::native::PhysicsServer2DExtensionRayResult>,
+    ) -> bool { false }
+
+    unsafe fn intersect_point_rawptr(
+        &mut self, _position: Vector2, _canvas_instance_id: u64, _collision_mask: u32,
+        _collide_with_bodies: bool, _collide_with_areas: bool,
+        _results: RawPtr<*mut godot::classes::native::PhysicsServer2DExtensionShapeResult>, _max_results: i32,
+    ) -> i32 { 0 }
+
+    unsafe fn intersect_shape_rawptr(
+        &mut self, _shape_rid: Rid, _transform: Transform2D, _motion: Vector2,
+        _margin: f32, _collision_mask: u32, _collide_with_bodies: bool, _collide_with_areas: bool,
+        _results: RawPtr<*mut godot::classes::native::PhysicsServer2DExtensionShapeResult>, _max_results: i32,
+    ) -> i32 { 0 }
+
+    unsafe fn cast_motion_rawptr(
+        &mut self, _shape_rid: Rid, _transform: Transform2D, _motion: Vector2,
+        _margin: f32, _collision_mask: u32, _collide_with_bodies: bool, _collide_with_areas: bool,
+        _closest_safe: RawPtr<*mut f64>, _closest_unsafe: RawPtr<*mut f64>,
+    ) -> bool { false }
+
+    unsafe fn collide_shape_rawptr(
+        &mut self, _shape_rid: Rid, _transform: Transform2D, _motion: Vector2,
+        _margin: f32, _collision_mask: u32, _collide_with_bodies: bool, _collide_with_areas: bool,
+        _results: RawPtr<*mut c_void>, _max_results: i32, _result_count: RawPtr<*mut i32>,
+    ) -> bool { false }
+
+    unsafe fn rest_info_rawptr(
+        &mut self, _shape_rid: Rid, _transform: Transform2D, _motion: Vector2,
+        _margin: f32, _collision_mask: u32, _collide_with_bodies: bool, _collide_with_areas: bool,
+        _result: RawPtr<*mut godot::classes::native::PhysicsServer2DExtensionShapeRestInfo>,
+    ) -> bool { false }
 }
 
 // ── Main server ──────────────────────────────────────────────────────────────
@@ -489,8 +544,11 @@ impl IPhysicsServer2DExtension for EvolvePhysicsServer {
         0.0
     }
 
-    fn space_get_direct_state(&mut self, _space: Rid) -> Option<Gd<PhysicsDirectSpaceState2D>> {
-        None // TODO: implement PhysicsDirectSpaceState2DExtension
+    fn space_get_direct_state(&mut self, space: Rid) -> Option<Gd<PhysicsDirectSpaceState2D>> {
+        if !self.spaces.contains_key(&space) { return None; }
+        let mut state = EvolveDirectSpaceState::new_alloc();
+        state.bind_mut().space_rid = space;
+        Some(state.upcast())
     }
 
     fn space_set_debug_contacts(&mut self, _space: Rid, _max_contacts: i32) {}
@@ -1252,10 +1310,121 @@ impl IPhysicsServer2DExtension for EvolvePhysicsServer {
     }
 
     unsafe fn body_test_motion_rawptr(
-        &self, _body: Rid, _from: Transform2D, _motion: Vector2, _margin: f32,
+        &self, body: Rid, from: Transform2D, motion: Vector2, margin: f32,
         _collide_separation_ray: bool, _recovery_as_collision: bool,
-        _result: RawPtr<*mut PhysicsServer2DExtensionMotionResult>,
+        result: RawPtr<*mut PhysicsServer2DExtensionMotionResult>,
     ) -> bool {
+        let bd = match self.bodies.get(&body) { Some(b) => b, None => return false };
+        let space_rid = match bd.space_rid { Some(r) => r, None => return false };
+        let space = match self.spaces.get(&space_rid) { Some(s) => s, None => return false };
+
+        // Get the body's first shape
+        let shape_entry = match bd.shapes.first() { Some(s) => s, None => return false };
+        let shape_data = match self.shapes.get(&shape_entry.shape_rid) { Some(s) => s, None => return false };
+
+        // Build a rapier shape for the cast
+        let rapier_shape: rapier::SharedShape = match shape_data.shape_type {
+            ShapeType::Circle => {
+                let radius = shape_data.data.try_to::<f32>().unwrap_or(10.0);
+                rapier::SharedShape::ball(radius)
+            }
+            ShapeType::Rectangle => {
+                let half = shape_data.data.try_to::<Vector2>().unwrap_or(Vector2::new(10.0, 10.0));
+                rapier::SharedShape::cuboid(half.x, half.y)
+            }
+            ShapeType::Capsule => {
+                // Godot capsule data: [height, radius] array
+                let arr = shape_data.data.try_to::<Array<Variant>>().ok();
+                let (height, radius) = if let Some(ref a) = arr {
+                    let h: f32 = if a.len() > 0 { a.at(0).try_to::<f32>().unwrap_or(20.0) } else { 20.0 };
+                    let r: f32 = if a.len() > 1 { a.at(1).try_to::<f32>().unwrap_or(10.0) } else { 10.0 };
+                    (h, r)
+                } else {
+                    (20.0, 10.0)
+                };
+                rapier::SharedShape::capsule_y(height / 2.0, radius)
+            }
+            _ => return false,
+        };
+
+        // Compute shape position from the `from` transform + shape local transform
+        let shape_xf = shape_entry.transform;
+        let origin_x = from.origin.x + shape_xf.origin.x;
+        let origin_y = from.origin.y + shape_xf.origin.y;
+        let rotation = from.rotation();
+        let shape_iso = rapier::Isometry::new(
+            rapier::Vector::new(origin_x, origin_y),
+            rotation as f32,
+        );
+
+        let motion_len = (motion.x * motion.x + motion.y * motion.y).sqrt();
+        if motion_len < 1.0e-6 {
+            // No motion — check if already overlapping (depenetration)
+            return false;
+        }
+        let dir = rapier::Vector::new(motion.x / motion_len, motion.y / motion_len);
+
+        // Exclude the body's own colliders
+        let exclude_rb = bd.rb_handle;
+        let filter = if let Some(rb_h) = exclude_rb {
+            rapier::QueryFilter::default().exclude_rigid_body(rb_h)
+        } else {
+            rapier::QueryFilter::default()
+        };
+
+        let hit = space.query_pipeline.cast_shape(
+            &space.rigid_body_set,
+            &space.collider_set,
+            &shape_iso,
+            &dir,
+            rapier_shape.as_ref(),
+            rapier2d::parry::query::ShapeCastOptions {
+                max_time_of_impact: motion_len,
+                target_distance: margin,
+                stop_at_penetration: true,
+                compute_impact_geometry_on_penetration: true,
+            },
+            filter,
+        );
+
+        if let Some((collider_handle, hit_data)) = hit {
+            let result_ptr: *mut PhysicsServer2DExtensionMotionResult = result.ptr();
+            if !result_ptr.is_null() {
+                let toi_frac = hit_data.time_of_impact / motion_len;
+                let travel = motion * toi_frac;
+                let remainder = motion * (1.0 - toi_frac);
+
+                // Get collision details
+                let normal1 = hit_data.normal1;
+                let witness1 = hit_data.witness1;
+
+                // Look up the collider's body to get object instance id
+                let collider = space.collider_set.get(collider_handle);
+                let collider_body_handle = collider.and_then(|c| c.parent());
+                let collider_body_rid = collider_body_handle.and_then(|rbh| {
+                    self.bodies.iter().find(|(_, bd)| bd.rb_handle == Some(rbh) && bd.space_rid == Some(space_rid)).map(|(r, _)| *r)
+                });
+                let collider_instance_id = collider_body_rid
+                    .and_then(|r| self.bodies.get(&r))
+                    .map(|bd| bd.object_instance_id)
+                    .unwrap_or(0);
+
+                let r = &mut *result_ptr;
+                r.travel = travel;
+                r.remainder = remainder;
+                r.collision_point = Vector2::new(witness1.x, witness1.y);
+                r.collision_normal = Vector2::new(normal1.x, normal1.y);
+                r.collision_depth = margin;
+                r.collision_safe_fraction = toi_frac;
+                r.collision_unsafe_fraction = toi_frac;
+                r.collider_velocity = Vector2::ZERO;
+                r.collider_id = godot::classes::native::ObjectId { id: collider_instance_id };
+                r.collider = collider_body_rid.unwrap_or(Rid::Invalid);
+                r.collider_shape = 0;
+                r.collision_local_shape = 0;
+            }
+            return true;
+        }
         false
     }
 
@@ -1352,6 +1521,7 @@ impl IPhysicsServer2DExtension for EvolvePhysicsServer {
         for space in self.spaces.values_mut() {
             if space.active {
                 space.step(step);
+                space.query_pipeline.update(&space.collider_set);
             }
         }
     }
