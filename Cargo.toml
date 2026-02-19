@@ -10,16 +10,22 @@ license = "MIT"
 crate-type = ["cdylib", "rlib"]
 name = "evolve_physics"
 
+[features]
+default = ["python"]
+python = ["dep:pyo3"]
+godot = ["dep:godot"]
+
 [dependencies]
 rapier2d = { version = "0.22", features = ["serde-serialize", "parallel"] }
 nalgebra = { version = "0.33", features = ["serde-serialize"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 
-# Python bindings
-[dependencies.pyo3]
-version = "0.23"
-features = ["extension-module", "auto-initialize"]
+# Python bindings (optional)
+pyo3 = { version = "0.23", features = ["extension-module", "auto-initialize"], optional = true }
+
+# Godot GDExtension bindings (optional)
+godot = { git = "https://github.com/godot-rust/gdext", rev = "003b41c15a015b6ec886dfb72dece62301598d2c", features = ["api-4-5"], optional = true }
 
 [dev-dependencies]
 approx = "0.5"

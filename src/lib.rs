@@ -6,7 +6,12 @@ pub mod world;
 pub mod shapes;
 
 // Python bindings module
+#[cfg(feature = "python")]
 pub mod python;
+
+// Godot GDExtension module
+#[cfg(feature = "godot")]
+pub mod godot_plugin;
 
 pub use body::{RigidBody, BodyHandle};
 pub use collision::{CollisionEvent, ContactPair as ContactPairInfo};
