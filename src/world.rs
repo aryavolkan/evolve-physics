@@ -90,10 +90,7 @@ impl World {
         let rb_handle = self.body_map.remove(&handle)?;
 
         // Remove colliders first
-        let colliders: Vec<_> = self
-            .rigid_body_set
-            .get(rb_handle)?
-            .colliders().to_vec();
+        let colliders: Vec<_> = self.rigid_body_set.get(rb_handle)?.colliders().to_vec();
 
         for collider_handle in colliders {
             self.collider_to_body.remove(&collider_handle);

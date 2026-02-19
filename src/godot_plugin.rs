@@ -2010,8 +2010,7 @@ impl IPhysicsServer2DExtension for EvolvePhysicsServer {
         let origin_x = from.origin.x + shape_xf.origin.x;
         let origin_y = from.origin.y + shape_xf.origin.y;
         let rotation = from.rotation();
-        let shape_iso =
-            rapier::Isometry::new(rapier::Vector::new(origin_x, origin_y), rotation);
+        let shape_iso = rapier::Isometry::new(rapier::Vector::new(origin_x, origin_y), rotation);
 
         let motion_len = (motion.x * motion.x + motion.y * motion.y).sqrt();
         if motion_len < 1.0e-6 {
