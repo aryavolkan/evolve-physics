@@ -2,17 +2,15 @@
 //!
 //! This replaces Godot's built-in 2D physics with deterministic Rapier2D physics.
 
-use godot::prelude::*;
-use godot::classes::{
-    PhysicsServer2DExtension, IPhysicsServer2DExtension,
-    PhysicsDirectSpaceState2D, PhysicsDirectBodyState2D,
-    PhysicsDirectSpaceState2DExtension, IPhysicsDirectSpaceState2DExtension,
-    PhysicsDirectBodyState2DExtension, IPhysicsDirectBodyState2DExtension,
-    physics_server_2d, Object,
-};
-use godot::builtin::{Rid, Transform2D, Vector2, Variant, Callable, PackedVector2Array, Array};
-use godot::meta::RawPtr;
+use godot::builtin::{Array, Callable, PackedVector2Array, Rid, Transform2D, Variant, Vector2};
 use godot::classes::native::PhysicsServer2DExtensionMotionResult;
+use godot::classes::{
+    physics_server_2d, IPhysicsDirectBodyState2DExtension, IPhysicsDirectSpaceState2DExtension,
+    IPhysicsServer2DExtension, Object, PhysicsDirectBodyState2D, PhysicsDirectBodyState2DExtension,
+    PhysicsDirectSpaceState2D, PhysicsDirectSpaceState2DExtension, PhysicsServer2DExtension,
+};
+use godot::meta::RawPtr;
+use godot::prelude::*;
 
 use rapier2d::prelude as rapier;
 use std::collections::HashMap;
@@ -31,15 +29,44 @@ unsafe impl ExtensionLibrary for EvolvePhysicsExtension {}
 /// Pending write-back from EvolveDirectBodyState to the physics server
 #[derive(Debug)]
 enum BodyWriteBack {
-    CentralImpulse { body: Rid, impulse: Vector2 },
-    Impulse { body: Rid, impulse: Vector2, position: Vector2 },
-    TorqueImpulse { body: Rid, impulse: f32 },
-    CentralForce { body: Rid, force: Vector2 },
-    Force { body: Rid, force: Vector2, position: Vector2 },
-    Torque { body: Rid, torque: f32 },
-    LinearVelocity { body: Rid, velocity: Vector2 },
-    AngularVelocity { body: Rid, velocity: f32 },
-    Transform { body: Rid, transform: Transform2D },
+    CentralImpulse {
+        body: Rid,
+        impulse: Vector2,
+    },
+    Impulse {
+        body: Rid,
+        impulse: Vector2,
+        position: Vector2,
+    },
+    TorqueImpulse {
+        body: Rid,
+        impulse: f32,
+    },
+    CentralForce {
+        body: Rid,
+        force: Vector2,
+    },
+    Force {
+        body: Rid,
+        force: Vector2,
+        position: Vector2,
+    },
+    Torque {
+        body: Rid,
+        torque: f32,
+    },
+    LinearVelocity {
+        body: Rid,
+        velocity: Vector2,
+    },
+    AngularVelocity {
+        body: Rid,
+        velocity: f32,
+    },
+    Transform {
+        body: Rid,
+        transform: Transform2D,
+    },
 }
 
 static WRITE_BACK_QUEUE: std::sync::LazyLock<Mutex<Vec<BodyWriteBack>>> =
@@ -275,81 +302,203 @@ impl IPhysicsDirectBodyState2DExtension for EvolveDirectBodyState {
         }
     }
 
-    fn get_total_gravity(&self) -> Vector2 { self.cached_total_gravity }
-    fn get_total_linear_damp(&self) -> f32 { 0.0 }
-    fn get_total_angular_damp(&self) -> f32 { 0.0 }
+    fn get_total_gravity(&self) -> Vector2 {
+        self.cached_total_gravity
+    }
+    fn get_total_linear_damp(&self) -> f32 {
+        0.0
+    }
+    fn get_total_angular_damp(&self) -> f32 {
+        0.0
+    }
     fn get_center_of_mass(&self) -> Vector2 {
         self.cached_transform.origin
     }
-    fn get_center_of_mass_local(&self) -> Vector2 { Vector2::ZERO }
-    fn get_inverse_mass(&self) -> f32 { self.cached_inverse_mass }
-    fn get_inverse_inertia(&self) -> f32 { self.cached_inverse_inertia }
+    fn get_center_of_mass_local(&self) -> Vector2 {
+        Vector2::ZERO
+    }
+    fn get_inverse_mass(&self) -> f32 {
+        self.cached_inverse_mass
+    }
+    fn get_inverse_inertia(&self) -> f32 {
+        self.cached_inverse_inertia
+    }
     fn set_linear_velocity(&mut self, velocity: Vector2) {
         self.cached_linear_velocity = velocity;
-        WRITE_BACK_QUEUE.lock().unwrap().push(BodyWriteBack::LinearVelocity { body: self.body_rid, velocity });
+        WRITE_BACK_QUEUE
+            .lock()
+            .unwrap()
+            .push(BodyWriteBack::LinearVelocity {
+                body: self.body_rid,
+                velocity,
+            });
     }
-    fn get_linear_velocity(&self) -> Vector2 { self.cached_linear_velocity }
+    fn get_linear_velocity(&self) -> Vector2 {
+        self.cached_linear_velocity
+    }
     fn set_angular_velocity(&mut self, velocity: f32) {
         self.cached_angular_velocity = velocity;
-        WRITE_BACK_QUEUE.lock().unwrap().push(BodyWriteBack::AngularVelocity { body: self.body_rid, velocity });
+        WRITE_BACK_QUEUE
+            .lock()
+            .unwrap()
+            .push(BodyWriteBack::AngularVelocity {
+                body: self.body_rid,
+                velocity,
+            });
     }
-    fn get_angular_velocity(&self) -> f32 { self.cached_angular_velocity }
+    fn get_angular_velocity(&self) -> f32 {
+        self.cached_angular_velocity
+    }
     fn set_transform(&mut self, transform: Transform2D) {
         self.cached_transform = transform;
-        WRITE_BACK_QUEUE.lock().unwrap().push(BodyWriteBack::Transform { body: self.body_rid, transform });
+        WRITE_BACK_QUEUE
+            .lock()
+            .unwrap()
+            .push(BodyWriteBack::Transform {
+                body: self.body_rid,
+                transform,
+            });
     }
-    fn get_transform(&self) -> Transform2D { self.cached_transform }
+    fn get_transform(&self) -> Transform2D {
+        self.cached_transform
+    }
     fn get_velocity_at_local_position(&self, local_position: Vector2) -> Vector2 {
         // v = linear_vel + angular_vel × r (2D cross product)
         let perp = Vector2::new(-local_position.y, local_position.x) * self.cached_angular_velocity;
         self.cached_linear_velocity + perp
     }
     fn apply_central_impulse(&mut self, impulse: Vector2) {
-        WRITE_BACK_QUEUE.lock().unwrap().push(BodyWriteBack::CentralImpulse { body: self.body_rid, impulse });
+        WRITE_BACK_QUEUE
+            .lock()
+            .unwrap()
+            .push(BodyWriteBack::CentralImpulse {
+                body: self.body_rid,
+                impulse,
+            });
     }
     fn apply_impulse(&mut self, impulse: Vector2, position: Vector2) {
-        WRITE_BACK_QUEUE.lock().unwrap().push(BodyWriteBack::Impulse { body: self.body_rid, impulse, position });
+        WRITE_BACK_QUEUE
+            .lock()
+            .unwrap()
+            .push(BodyWriteBack::Impulse {
+                body: self.body_rid,
+                impulse,
+                position,
+            });
     }
     fn apply_torque_impulse(&mut self, impulse: f32) {
-        WRITE_BACK_QUEUE.lock().unwrap().push(BodyWriteBack::TorqueImpulse { body: self.body_rid, impulse });
+        WRITE_BACK_QUEUE
+            .lock()
+            .unwrap()
+            .push(BodyWriteBack::TorqueImpulse {
+                body: self.body_rid,
+                impulse,
+            });
     }
     fn apply_central_force(&mut self, force: Vector2) {
-        WRITE_BACK_QUEUE.lock().unwrap().push(BodyWriteBack::CentralForce { body: self.body_rid, force });
+        WRITE_BACK_QUEUE
+            .lock()
+            .unwrap()
+            .push(BodyWriteBack::CentralForce {
+                body: self.body_rid,
+                force,
+            });
     }
     fn apply_force(&mut self, force: Vector2, position: Vector2) {
-        WRITE_BACK_QUEUE.lock().unwrap().push(BodyWriteBack::Force { body: self.body_rid, force, position });
+        WRITE_BACK_QUEUE.lock().unwrap().push(BodyWriteBack::Force {
+            body: self.body_rid,
+            force,
+            position,
+        });
     }
     fn apply_torque(&mut self, torque: f32) {
-        WRITE_BACK_QUEUE.lock().unwrap().push(BodyWriteBack::Torque { body: self.body_rid, torque });
+        WRITE_BACK_QUEUE
+            .lock()
+            .unwrap()
+            .push(BodyWriteBack::Torque {
+                body: self.body_rid,
+                torque,
+            });
     }
-    fn add_constant_central_force(&mut self, force: Vector2) { self.cached_constant_force += force; }
-    fn add_constant_force(&mut self, force: Vector2, _position: Vector2) { self.cached_constant_force += force; }
-    fn add_constant_torque(&mut self, torque: f32) { self.cached_constant_torque += torque; }
-    fn set_constant_force(&mut self, force: Vector2) { self.cached_constant_force = force; }
-    fn get_constant_force(&self) -> Vector2 { self.cached_constant_force }
-    fn set_constant_torque(&mut self, torque: f32) { self.cached_constant_torque = torque; }
-    fn get_constant_torque(&self) -> f32 { self.cached_constant_torque }
-    fn set_sleep_state(&mut self, enabled: bool) { self.sleeping = enabled; }
-    fn is_sleeping(&self) -> bool { self.sleeping }
-    fn get_contact_count(&self) -> i32 { 0 }
-    fn get_contact_local_position(&self, _contact_idx: i32) -> Vector2 { Vector2::ZERO }
-    fn get_contact_local_normal(&self, _contact_idx: i32) -> Vector2 { Vector2::ZERO }
-    fn get_contact_local_shape(&self, _contact_idx: i32) -> i32 { 0 }
-    fn get_contact_local_velocity_at_position(&self, _contact_idx: i32) -> Vector2 { Vector2::ZERO }
-    fn get_contact_collider(&self, _contact_idx: i32) -> Rid { Rid::Invalid }
-    fn get_contact_collider_position(&self, _contact_idx: i32) -> Vector2 { Vector2::ZERO }
-    fn get_contact_collider_id(&self, _contact_idx: i32) -> u64 { 0 }
-    fn get_contact_collider_object(&self, _contact_idx: i32) -> Option<Gd<Object>> { None }
-    fn get_contact_collider_shape(&self, _contact_idx: i32) -> i32 { 0 }
-    fn get_contact_collider_velocity_at_position(&self, _contact_idx: i32) -> Vector2 { Vector2::ZERO }
-    fn get_contact_impulse(&self, _contact_idx: i32) -> Vector2 { Vector2::ZERO }
-    fn get_step(&self) -> f32 { self.step }
-    fn integrate_forces(&mut self) { /* Rapier handles integration */ }
-    fn get_space_state(&mut self) -> Option<Gd<PhysicsDirectSpaceState2D>> { None }
-    fn set_collision_layer(&mut self, _layer: u32) { }
-    fn get_collision_layer(&self) -> u32 { 0 }
-    fn set_collision_mask(&mut self, _mask: u32) { }
-    fn get_collision_mask(&self) -> u32 { 0 }
+    fn add_constant_central_force(&mut self, force: Vector2) {
+        self.cached_constant_force += force;
+    }
+    fn add_constant_force(&mut self, force: Vector2, _position: Vector2) {
+        self.cached_constant_force += force;
+    }
+    fn add_constant_torque(&mut self, torque: f32) {
+        self.cached_constant_torque += torque;
+    }
+    fn set_constant_force(&mut self, force: Vector2) {
+        self.cached_constant_force = force;
+    }
+    fn get_constant_force(&self) -> Vector2 {
+        self.cached_constant_force
+    }
+    fn set_constant_torque(&mut self, torque: f32) {
+        self.cached_constant_torque = torque;
+    }
+    fn get_constant_torque(&self) -> f32 {
+        self.cached_constant_torque
+    }
+    fn set_sleep_state(&mut self, enabled: bool) {
+        self.sleeping = enabled;
+    }
+    fn is_sleeping(&self) -> bool {
+        self.sleeping
+    }
+    fn get_contact_count(&self) -> i32 {
+        0
+    }
+    fn get_contact_local_position(&self, _contact_idx: i32) -> Vector2 {
+        Vector2::ZERO
+    }
+    fn get_contact_local_normal(&self, _contact_idx: i32) -> Vector2 {
+        Vector2::ZERO
+    }
+    fn get_contact_local_shape(&self, _contact_idx: i32) -> i32 {
+        0
+    }
+    fn get_contact_local_velocity_at_position(&self, _contact_idx: i32) -> Vector2 {
+        Vector2::ZERO
+    }
+    fn get_contact_collider(&self, _contact_idx: i32) -> Rid {
+        Rid::Invalid
+    }
+    fn get_contact_collider_position(&self, _contact_idx: i32) -> Vector2 {
+        Vector2::ZERO
+    }
+    fn get_contact_collider_id(&self, _contact_idx: i32) -> u64 {
+        0
+    }
+    fn get_contact_collider_object(&self, _contact_idx: i32) -> Option<Gd<Object>> {
+        None
+    }
+    fn get_contact_collider_shape(&self, _contact_idx: i32) -> i32 {
+        0
+    }
+    fn get_contact_collider_velocity_at_position(&self, _contact_idx: i32) -> Vector2 {
+        Vector2::ZERO
+    }
+    fn get_contact_impulse(&self, _contact_idx: i32) -> Vector2 {
+        Vector2::ZERO
+    }
+    fn get_step(&self) -> f32 {
+        self.step
+    }
+    fn integrate_forces(&mut self) { /* Rapier handles integration */
+    }
+    fn get_space_state(&mut self) -> Option<Gd<PhysicsDirectSpaceState2D>> {
+        None
+    }
+    fn set_collision_layer(&mut self, _layer: u32) {}
+    fn get_collision_layer(&self) -> u32 {
+        0
+    }
+    fn set_collision_mask(&mut self, _mask: u32) {}
+    fn get_collision_mask(&self) -> u32 {
+        0
+    }
 }
 
 // ── Direct space state ───────────────────────────────────────────────────────
@@ -364,44 +513,97 @@ pub struct EvolveDirectSpaceState {
 #[godot_api]
 impl IPhysicsDirectSpaceState2DExtension for EvolveDirectSpaceState {
     fn init(base: Base<PhysicsDirectSpaceState2DExtension>) -> Self {
-        Self { base, space_rid: Rid::Invalid }
+        Self {
+            base,
+            space_rid: Rid::Invalid,
+        }
     }
 
     unsafe fn intersect_ray_rawptr(
-        &mut self, _from: Vector2, _to: Vector2, _collision_mask: u32,
-        _collide_with_bodies: bool, _collide_with_areas: bool, _hit_from_inside: bool,
+        &mut self,
+        _from: Vector2,
+        _to: Vector2,
+        _collision_mask: u32,
+        _collide_with_bodies: bool,
+        _collide_with_areas: bool,
+        _hit_from_inside: bool,
         _result: RawPtr<*mut godot::classes::native::PhysicsServer2DExtensionRayResult>,
-    ) -> bool { false }
+    ) -> bool {
+        false
+    }
 
     unsafe fn intersect_point_rawptr(
-        &mut self, _position: Vector2, _canvas_instance_id: u64, _collision_mask: u32,
-        _collide_with_bodies: bool, _collide_with_areas: bool,
-        _results: RawPtr<*mut godot::classes::native::PhysicsServer2DExtensionShapeResult>, _max_results: i32,
-    ) -> i32 { 0 }
+        &mut self,
+        _position: Vector2,
+        _canvas_instance_id: u64,
+        _collision_mask: u32,
+        _collide_with_bodies: bool,
+        _collide_with_areas: bool,
+        _results: RawPtr<*mut godot::classes::native::PhysicsServer2DExtensionShapeResult>,
+        _max_results: i32,
+    ) -> i32 {
+        0
+    }
 
     unsafe fn intersect_shape_rawptr(
-        &mut self, _shape_rid: Rid, _transform: Transform2D, _motion: Vector2,
-        _margin: f32, _collision_mask: u32, _collide_with_bodies: bool, _collide_with_areas: bool,
-        _results: RawPtr<*mut godot::classes::native::PhysicsServer2DExtensionShapeResult>, _max_results: i32,
-    ) -> i32 { 0 }
+        &mut self,
+        _shape_rid: Rid,
+        _transform: Transform2D,
+        _motion: Vector2,
+        _margin: f32,
+        _collision_mask: u32,
+        _collide_with_bodies: bool,
+        _collide_with_areas: bool,
+        _results: RawPtr<*mut godot::classes::native::PhysicsServer2DExtensionShapeResult>,
+        _max_results: i32,
+    ) -> i32 {
+        0
+    }
 
     unsafe fn cast_motion_rawptr(
-        &mut self, _shape_rid: Rid, _transform: Transform2D, _motion: Vector2,
-        _margin: f32, _collision_mask: u32, _collide_with_bodies: bool, _collide_with_areas: bool,
-        _closest_safe: RawPtr<*mut f64>, _closest_unsafe: RawPtr<*mut f64>,
-    ) -> bool { false }
+        &mut self,
+        _shape_rid: Rid,
+        _transform: Transform2D,
+        _motion: Vector2,
+        _margin: f32,
+        _collision_mask: u32,
+        _collide_with_bodies: bool,
+        _collide_with_areas: bool,
+        _closest_safe: RawPtr<*mut f64>,
+        _closest_unsafe: RawPtr<*mut f64>,
+    ) -> bool {
+        false
+    }
 
     unsafe fn collide_shape_rawptr(
-        &mut self, _shape_rid: Rid, _transform: Transform2D, _motion: Vector2,
-        _margin: f32, _collision_mask: u32, _collide_with_bodies: bool, _collide_with_areas: bool,
-        _results: RawPtr<*mut c_void>, _max_results: i32, _result_count: RawPtr<*mut i32>,
-    ) -> bool { false }
+        &mut self,
+        _shape_rid: Rid,
+        _transform: Transform2D,
+        _motion: Vector2,
+        _margin: f32,
+        _collision_mask: u32,
+        _collide_with_bodies: bool,
+        _collide_with_areas: bool,
+        _results: RawPtr<*mut c_void>,
+        _max_results: i32,
+        _result_count: RawPtr<*mut i32>,
+    ) -> bool {
+        false
+    }
 
     unsafe fn rest_info_rawptr(
-        &mut self, _shape_rid: Rid, _transform: Transform2D, _motion: Vector2,
-        _margin: f32, _collision_mask: u32, _collide_with_bodies: bool, _collide_with_areas: bool,
+        &mut self,
+        _shape_rid: Rid,
+        _transform: Transform2D,
+        _motion: Vector2,
+        _margin: f32,
+        _collision_mask: u32,
+        _collide_with_bodies: bool,
+        _collide_with_areas: bool,
         _result: RawPtr<*mut godot::classes::native::PhysicsServer2DExtensionShapeRestInfo>,
-    ) -> bool { false }
+    ) -> bool {
+        false
+    }
 }
 
 // ── Main server ──────────────────────────────────────────────────────────────
@@ -435,15 +637,26 @@ impl EvolvePhysicsServer {
             }
             ShapeType::Rectangle => {
                 // Rectangle data is a Vector2 of half-extents
-                let half = shape.data.try_to::<Vector2>().unwrap_or(Vector2::new(10.0, 10.0));
+                let half = shape
+                    .data
+                    .try_to::<Vector2>()
+                    .unwrap_or(Vector2::new(10.0, 10.0));
                 Some(rapier::ColliderBuilder::cuboid(half.x, half.y).build())
             }
             ShapeType::Capsule => {
                 // Godot capsule data: [height, radius] array
                 let arr = shape.data.try_to::<Array<Variant>>().ok();
                 let (height, radius) = if let Some(ref a) = arr {
-                    let h: f32 = if a.len() > 0 { a.at(0).try_to::<f32>().unwrap_or(20.0) } else { 20.0 };
-                    let r: f32 = if a.len() > 1 { a.at(1).try_to::<f32>().unwrap_or(10.0) } else { 10.0 };
+                    let h: f32 = if a.len() > 0 {
+                        a.at(0).try_to::<f32>().unwrap_or(20.0)
+                    } else {
+                        20.0
+                    };
+                    let r: f32 = if a.len() > 1 {
+                        a.at(1).try_to::<f32>().unwrap_or(10.0)
+                    } else {
+                        10.0
+                    };
                     (h, r)
                 } else {
                     (20.0, 10.0)
@@ -465,12 +678,13 @@ impl EvolvePhysicsServer {
                 // ConvexPolygon data is a PackedVector2Array of points
                 let points = shape.data.try_to::<PackedVector2Array>().ok();
                 if let Some(pts) = points {
-                    let rapier_pts: Vec<rapier::Point<f32>> = pts.as_slice().iter()
+                    let rapier_pts: Vec<rapier::Point<f32>> = pts
+                        .as_slice()
+                        .iter()
                         .map(|p| rapier::Point::new(p.x, p.y))
                         .collect();
                     if rapier_pts.len() >= 3 {
-                        rapier::ColliderBuilder::convex_hull(&rapier_pts)
-                            .map(|b| b.build())
+                        rapier::ColliderBuilder::convex_hull(&rapier_pts).map(|b| b.build())
                     } else {
                         None
                     }
@@ -484,9 +698,8 @@ impl EvolvePhysicsServer {
                 if let Some(pts) = points {
                     let slice = pts.as_slice();
                     if slice.len() >= 4 && slice.len() % 2 == 0 {
-                        let vertices: Vec<rapier::Point<f32>> = slice.iter()
-                            .map(|p| rapier::Point::new(p.x, p.y))
-                            .collect();
+                        let vertices: Vec<rapier::Point<f32>> =
+                            slice.iter().map(|p| rapier::Point::new(p.x, p.y)).collect();
                         let indices: Vec<[u32; 2]> = (0..vertices.len() / 2)
                             .map(|i| [i as u32 * 2, i as u32 * 2 + 1])
                             .collect();
@@ -514,7 +727,10 @@ impl EvolvePhysicsServer {
                 (Some(s), Some(h)) => (s, h),
                 _ => return,
             };
-            let shape_info: Vec<(usize, Rid, bool)> = bd.shapes.iter().enumerate()
+            let shape_info: Vec<(usize, Rid, bool)> = bd
+                .shapes
+                .iter()
+                .enumerate()
                 .map(|(i, s)| (i, s.shape_rid, s.disabled))
                 .filter(|(_, _, disabled)| !disabled)
                 .filter(|(i, _, _)| bd.shapes[*i].collider_handle.is_none())
@@ -528,7 +744,9 @@ impl EvolvePhysicsServer {
             if let Some(collider) = self.build_collider_for_shape(shape_rid) {
                 if let Some(space_data) = self.spaces.get_mut(&space_rid) {
                     let ch = space_data.collider_set.insert_with_parent(
-                        collider, rb_handle, &mut space_data.rigid_body_set,
+                        collider,
+                        rb_handle,
+                        &mut space_data.rigid_body_set,
                     );
                     if let Some(bd) = self.bodies.get_mut(&body_rid) {
                         if let Some(entry) = bd.shapes.get_mut(idx) {
@@ -574,49 +792,97 @@ impl IPhysicsServer2DExtension for EvolvePhysicsServer {
 
     fn world_boundary_shape_create(&mut self) -> Rid {
         let rid = self.alloc_rid();
-        self.shapes.insert(rid, ShapeData { shape_type: ShapeType::WorldBoundary, data: Variant::nil() });
+        self.shapes.insert(
+            rid,
+            ShapeData {
+                shape_type: ShapeType::WorldBoundary,
+                data: Variant::nil(),
+            },
+        );
         rid
     }
 
     fn separation_ray_shape_create(&mut self) -> Rid {
         let rid = self.alloc_rid();
-        self.shapes.insert(rid, ShapeData { shape_type: ShapeType::SeparationRay, data: Variant::nil() });
+        self.shapes.insert(
+            rid,
+            ShapeData {
+                shape_type: ShapeType::SeparationRay,
+                data: Variant::nil(),
+            },
+        );
         rid
     }
 
     fn segment_shape_create(&mut self) -> Rid {
         let rid = self.alloc_rid();
-        self.shapes.insert(rid, ShapeData { shape_type: ShapeType::Segment, data: Variant::nil() });
+        self.shapes.insert(
+            rid,
+            ShapeData {
+                shape_type: ShapeType::Segment,
+                data: Variant::nil(),
+            },
+        );
         rid
     }
 
     fn circle_shape_create(&mut self) -> Rid {
         let rid = self.alloc_rid();
-        self.shapes.insert(rid, ShapeData { shape_type: ShapeType::Circle, data: Variant::nil() });
+        self.shapes.insert(
+            rid,
+            ShapeData {
+                shape_type: ShapeType::Circle,
+                data: Variant::nil(),
+            },
+        );
         rid
     }
 
     fn rectangle_shape_create(&mut self) -> Rid {
         let rid = self.alloc_rid();
-        self.shapes.insert(rid, ShapeData { shape_type: ShapeType::Rectangle, data: Variant::nil() });
+        self.shapes.insert(
+            rid,
+            ShapeData {
+                shape_type: ShapeType::Rectangle,
+                data: Variant::nil(),
+            },
+        );
         rid
     }
 
     fn capsule_shape_create(&mut self) -> Rid {
         let rid = self.alloc_rid();
-        self.shapes.insert(rid, ShapeData { shape_type: ShapeType::Capsule, data: Variant::nil() });
+        self.shapes.insert(
+            rid,
+            ShapeData {
+                shape_type: ShapeType::Capsule,
+                data: Variant::nil(),
+            },
+        );
         rid
     }
 
     fn convex_polygon_shape_create(&mut self) -> Rid {
         let rid = self.alloc_rid();
-        self.shapes.insert(rid, ShapeData { shape_type: ShapeType::ConvexPolygon, data: Variant::nil() });
+        self.shapes.insert(
+            rid,
+            ShapeData {
+                shape_type: ShapeType::ConvexPolygon,
+                data: Variant::nil(),
+            },
+        );
         rid
     }
 
     fn concave_polygon_shape_create(&mut self) -> Rid {
         let rid = self.alloc_rid();
-        self.shapes.insert(rid, ShapeData { shape_type: ShapeType::ConcavePolygon, data: Variant::nil() });
+        self.shapes.insert(
+            rid,
+            ShapeData {
+                shape_type: ShapeType::ConcavePolygon,
+                data: Variant::nil(),
+            },
+        );
         rid
     }
 
@@ -631,13 +897,15 @@ impl IPhysicsServer2DExtension for EvolvePhysicsServer {
     }
 
     fn shape_get_type(&self, shape: Rid) -> physics_server_2d::ShapeType {
-        self.shapes.get(&shape)
+        self.shapes
+            .get(&shape)
             .map(|s| self.shape_type_to_godot(s.shape_type))
             .unwrap_or(physics_server_2d::ShapeType::CUSTOM)
     }
 
     fn shape_get_data(&self, shape: Rid) -> Variant {
-        self.shapes.get(&shape)
+        self.shapes
+            .get(&shape)
             .map(|s| s.data.clone())
             .unwrap_or(Variant::nil())
     }
@@ -647,9 +915,16 @@ impl IPhysicsServer2DExtension for EvolvePhysicsServer {
     }
 
     unsafe fn shape_collide_rawptr(
-        &mut self, _shape_a: Rid, _xform_a: Transform2D, _motion_a: Vector2,
-        _shape_b: Rid, _xform_b: Transform2D, _motion_b: Vector2,
-        _results: RawPtr<*mut c_void>, _result_max: i32, _result_count: RawPtr<*mut i32>,
+        &mut self,
+        _shape_a: Rid,
+        _xform_a: Transform2D,
+        _motion_a: Vector2,
+        _shape_b: Rid,
+        _xform_b: Transform2D,
+        _motion_b: Vector2,
+        _results: RawPtr<*mut c_void>,
+        _result_max: i32,
+        _result_count: RawPtr<*mut i32>,
     ) -> bool {
         false // Stub
     }
@@ -672,7 +947,12 @@ impl IPhysicsServer2DExtension for EvolvePhysicsServer {
         self.spaces.get(&space).map(|s| s.active).unwrap_or(false)
     }
 
-    fn space_set_param(&mut self, _space: Rid, _param: physics_server_2d::SpaceParameter, _value: f32) {
+    fn space_set_param(
+        &mut self,
+        _space: Rid,
+        _param: physics_server_2d::SpaceParameter,
+        _value: f32,
+    ) {
         // Stub
     }
 
@@ -681,7 +961,9 @@ impl IPhysicsServer2DExtension for EvolvePhysicsServer {
     }
 
     fn space_get_direct_state(&mut self, space: Rid) -> Option<Gd<PhysicsDirectSpaceState2D>> {
-        if !self.spaces.contains_key(&space) { return None; }
+        if !self.spaces.contains_key(&space) {
+            return None;
+        }
         let mut state = EvolveDirectSpaceState::new_alloc();
         state.bind_mut().space_rid = space;
         Some(state.upcast())
@@ -701,19 +983,22 @@ impl IPhysicsServer2DExtension for EvolvePhysicsServer {
 
     fn area_create(&mut self) -> Rid {
         let rid = self.alloc_rid();
-        self.areas.insert(rid, AreaData {
-            space_rid: None,
-            shapes: Vec::new(),
-            transform: Transform2D::IDENTITY,
-            collision_layer: 1,
-            collision_mask: 1,
-            monitorable: false,
-            pickable: false,
-            object_instance_id: 0,
-            canvas_instance_id: 0,
-            monitor_callback: None,
-            area_monitor_callback: None,
-        });
+        self.areas.insert(
+            rid,
+            AreaData {
+                space_rid: None,
+                shapes: Vec::new(),
+                transform: Transform2D::IDENTITY,
+                collision_layer: 1,
+                collision_mask: 1,
+                monitorable: false,
+                pickable: false,
+                object_instance_id: 0,
+                canvas_instance_id: 0,
+                monitor_callback: None,
+                area_monitor_callback: None,
+            },
+        );
         rid
     }
 
@@ -724,12 +1009,19 @@ impl IPhysicsServer2DExtension for EvolvePhysicsServer {
     }
 
     fn area_get_space(&self, area: Rid) -> Rid {
-        self.areas.get(&area).and_then(|a| a.space_rid).unwrap_or(Rid::Invalid)
+        self.areas
+            .get(&area)
+            .and_then(|a| a.space_rid)
+            .unwrap_or(Rid::Invalid)
     }
 
     fn area_add_shape(&mut self, area: Rid, shape: Rid, transform: Transform2D, disabled: bool) {
         if let Some(a) = self.areas.get_mut(&area) {
-            a.shapes.push(AreaShapeEntry { shape_rid: shape, transform, disabled });
+            a.shapes.push(AreaShapeEntry {
+                shape_rid: shape,
+                transform,
+                disabled,
+            });
         }
     }
 
@@ -758,18 +1050,23 @@ impl IPhysicsServer2DExtension for EvolvePhysicsServer {
     }
 
     fn area_get_shape_count(&self, area: Rid) -> i32 {
-        self.areas.get(&area).map(|a| a.shapes.len() as i32).unwrap_or(0)
+        self.areas
+            .get(&area)
+            .map(|a| a.shapes.len() as i32)
+            .unwrap_or(0)
     }
 
     fn area_get_shape(&self, area: Rid, shape_idx: i32) -> Rid {
-        self.areas.get(&area)
+        self.areas
+            .get(&area)
             .and_then(|a| a.shapes.get(shape_idx as usize))
             .map(|e| e.shape_rid)
             .unwrap_or(Rid::Invalid)
     }
 
     fn area_get_shape_transform(&self, area: Rid, shape_idx: i32) -> Transform2D {
-        self.areas.get(&area)
+        self.areas
+            .get(&area)
             .and_then(|a| a.shapes.get(shape_idx as usize))
             .map(|e| e.transform)
             .unwrap_or(Transform2D::IDENTITY)
@@ -791,25 +1088,43 @@ impl IPhysicsServer2DExtension for EvolvePhysicsServer {
     }
 
     fn area_attach_object_instance_id(&mut self, area: Rid, id: u64) {
-        if let Some(a) = self.areas.get_mut(&area) { a.object_instance_id = id; }
+        if let Some(a) = self.areas.get_mut(&area) {
+            a.object_instance_id = id;
+        }
     }
 
     fn area_get_object_instance_id(&self, area: Rid) -> u64 {
-        self.areas.get(&area).map(|a| a.object_instance_id).unwrap_or(0)
+        self.areas
+            .get(&area)
+            .map(|a| a.object_instance_id)
+            .unwrap_or(0)
     }
 
     fn area_attach_canvas_instance_id(&mut self, area: Rid, id: u64) {
-        if let Some(a) = self.areas.get_mut(&area) { a.canvas_instance_id = id; }
+        if let Some(a) = self.areas.get_mut(&area) {
+            a.canvas_instance_id = id;
+        }
     }
 
     fn area_get_canvas_instance_id(&self, area: Rid) -> u64 {
-        self.areas.get(&area).map(|a| a.canvas_instance_id).unwrap_or(0)
+        self.areas
+            .get(&area)
+            .map(|a| a.canvas_instance_id)
+            .unwrap_or(0)
     }
 
-    fn area_set_param(&mut self, _area: Rid, _param: physics_server_2d::AreaParameter, _value: Variant) {}
+    fn area_set_param(
+        &mut self,
+        _area: Rid,
+        _param: physics_server_2d::AreaParameter,
+        _value: Variant,
+    ) {
+    }
 
     fn area_set_transform(&mut self, area: Rid, transform: Transform2D) {
-        if let Some(a) = self.areas.get_mut(&area) { a.transform = transform; }
+        if let Some(a) = self.areas.get_mut(&area) {
+            a.transform = transform;
+        }
     }
 
     fn area_get_param(&self, _area: Rid, _param: physics_server_2d::AreaParameter) -> Variant {
@@ -817,19 +1132,29 @@ impl IPhysicsServer2DExtension for EvolvePhysicsServer {
     }
 
     fn area_get_transform(&self, area: Rid) -> Transform2D {
-        self.areas.get(&area).map(|a| a.transform).unwrap_or(Transform2D::IDENTITY)
+        self.areas
+            .get(&area)
+            .map(|a| a.transform)
+            .unwrap_or(Transform2D::IDENTITY)
     }
 
     fn area_set_collision_layer(&mut self, area: Rid, layer: u32) {
-        if let Some(a) = self.areas.get_mut(&area) { a.collision_layer = layer; }
+        if let Some(a) = self.areas.get_mut(&area) {
+            a.collision_layer = layer;
+        }
     }
 
     fn area_get_collision_layer(&self, area: Rid) -> u32 {
-        self.areas.get(&area).map(|a| a.collision_layer).unwrap_or(0)
+        self.areas
+            .get(&area)
+            .map(|a| a.collision_layer)
+            .unwrap_or(0)
     }
 
     fn area_set_collision_mask(&mut self, area: Rid, mask: u32) {
-        if let Some(a) = self.areas.get_mut(&area) { a.collision_mask = mask; }
+        if let Some(a) = self.areas.get_mut(&area) {
+            a.collision_mask = mask;
+        }
     }
 
     fn area_get_collision_mask(&self, area: Rid) -> u32 {
@@ -837,22 +1162,34 @@ impl IPhysicsServer2DExtension for EvolvePhysicsServer {
     }
 
     fn area_set_monitorable(&mut self, area: Rid, monitorable: bool) {
-        if let Some(a) = self.areas.get_mut(&area) { a.monitorable = monitorable; }
+        if let Some(a) = self.areas.get_mut(&area) {
+            a.monitorable = monitorable;
+        }
     }
 
     fn area_set_pickable(&mut self, area: Rid, pickable: bool) {
-        if let Some(a) = self.areas.get_mut(&area) { a.pickable = pickable; }
+        if let Some(a) = self.areas.get_mut(&area) {
+            a.pickable = pickable;
+        }
     }
 
     fn area_set_monitor_callback(&mut self, area: Rid, callback: Callable) {
         if let Some(a) = self.areas.get_mut(&area) {
-            a.monitor_callback = if callback.is_valid() { Some(callback) } else { None };
+            a.monitor_callback = if callback.is_valid() {
+                Some(callback)
+            } else {
+                None
+            };
         }
     }
 
     fn area_set_area_monitor_callback(&mut self, area: Rid, callback: Callable) {
         if let Some(a) = self.areas.get_mut(&area) {
-            a.area_monitor_callback = if callback.is_valid() { Some(callback) } else { None };
+            a.area_monitor_callback = if callback.is_valid() {
+                Some(callback)
+            } else {
+                None
+            };
         }
     }
 
@@ -860,25 +1197,28 @@ impl IPhysicsServer2DExtension for EvolvePhysicsServer {
 
     fn body_create(&mut self) -> Rid {
         let rid = self.alloc_rid();
-        self.bodies.insert(rid, BodyData {
-            space_rid: None,
-            rb_handle: None,
-            shapes: Vec::new(),
-            mode: BodyMode::Rigid,
-            collision_layer: 1,
-            collision_mask: 1,
-            collision_priority: 1.0,
-            object_instance_id: 0,
-            canvas_instance_id: 0,
-            constant_force: Vector2::ZERO,
-            constant_torque: 0.0,
-            max_contacts_reported: 0,
-            contacts_depth_threshold: 0.0,
-            omit_force_integration: false,
-            pickable: false,
-            state_sync_callback: None,
-            force_integration_callback: None,
-        });
+        self.bodies.insert(
+            rid,
+            BodyData {
+                space_rid: None,
+                rb_handle: None,
+                shapes: Vec::new(),
+                mode: BodyMode::Rigid,
+                collision_layer: 1,
+                collision_mask: 1,
+                collision_priority: 1.0,
+                object_instance_id: 0,
+                canvas_instance_id: 0,
+                constant_force: Vector2::ZERO,
+                constant_torque: 0.0,
+                max_contacts_reported: 0,
+                contacts_depth_threshold: 0.0,
+                omit_force_integration: false,
+                pickable: false,
+                state_sync_callback: None,
+                force_integration_callback: None,
+            },
+        );
         rid
     }
 
@@ -888,7 +1228,8 @@ impl IPhysicsServer2DExtension for EvolvePhysicsServer {
             if let (Some(old_space_rid), Some(rb_handle)) = (bd.space_rid, bd.rb_handle) {
                 if let Some(space_data) = self.spaces.get_mut(&old_space_rid) {
                     // Remove colliders first
-                    let colliders: Vec<_> = space_data.rigid_body_set
+                    let colliders: Vec<_> = space_data
+                        .rigid_body_set
                         .get(rb_handle)
                         .map(|rb| rb.colliders().to_vec())
                         .unwrap_or_default();
@@ -923,7 +1264,9 @@ impl IPhysicsServer2DExtension for EvolvePhysicsServer {
                 // Create rigid body in space
                 let rb = match bd.mode {
                     BodyMode::Static => rapier::RigidBodyBuilder::fixed().build(),
-                    BodyMode::Kinematic => rapier::RigidBodyBuilder::kinematic_position_based().build(),
+                    BodyMode::Kinematic => {
+                        rapier::RigidBodyBuilder::kinematic_position_based().build()
+                    }
                     BodyMode::Rigid | BodyMode::RigidLinear => {
                         rapier::RigidBodyBuilder::dynamic().can_sleep(false).build()
                     }
@@ -941,7 +1284,10 @@ impl IPhysicsServer2DExtension for EvolvePhysicsServer {
     }
 
     fn body_get_space(&self, body: Rid) -> Rid {
-        self.bodies.get(&body).and_then(|b| b.space_rid).unwrap_or(Rid::Invalid)
+        self.bodies
+            .get(&body)
+            .and_then(|b| b.space_rid)
+            .unwrap_or(Rid::Invalid)
     }
 
     fn body_set_mode(&mut self, body: Rid, mode: physics_server_2d::BodyMode) {
@@ -958,9 +1304,14 @@ impl IPhysicsServer2DExtension for EvolvePhysicsServer {
                 if let Some(space) = self.spaces.get_mut(&space_rid) {
                     if let Some(rb) = space.rigid_body_set.get_mut(rb_handle) {
                         match bd.mode {
-                            BodyMode::Static => rb.set_body_type(rapier::RigidBodyType::Fixed, true),
-                            BodyMode::Kinematic => rb.set_body_type(rapier::RigidBodyType::KinematicPositionBased, true),
-                            BodyMode::Rigid | BodyMode::RigidLinear => rb.set_body_type(rapier::RigidBodyType::Dynamic, true),
+                            BodyMode::Static => {
+                                rb.set_body_type(rapier::RigidBodyType::Fixed, true)
+                            }
+                            BodyMode::Kinematic => rb
+                                .set_body_type(rapier::RigidBodyType::KinematicPositionBased, true),
+                            BodyMode::Rigid | BodyMode::RigidLinear => {
+                                rb.set_body_type(rapier::RigidBodyType::Dynamic, true)
+                            }
                         }
                     }
                 }
@@ -969,12 +1320,15 @@ impl IPhysicsServer2DExtension for EvolvePhysicsServer {
     }
 
     fn body_get_mode(&self, body: Rid) -> physics_server_2d::BodyMode {
-        self.bodies.get(&body).map(|b| match b.mode {
-            BodyMode::Static => physics_server_2d::BodyMode::STATIC,
-            BodyMode::Kinematic => physics_server_2d::BodyMode::KINEMATIC,
-            BodyMode::Rigid => physics_server_2d::BodyMode::RIGID,
-            BodyMode::RigidLinear => physics_server_2d::BodyMode::RIGID_LINEAR,
-        }).unwrap_or(physics_server_2d::BodyMode::STATIC)
+        self.bodies
+            .get(&body)
+            .map(|b| match b.mode {
+                BodyMode::Static => physics_server_2d::BodyMode::STATIC,
+                BodyMode::Kinematic => physics_server_2d::BodyMode::KINEMATIC,
+                BodyMode::Rigid => physics_server_2d::BodyMode::RIGID,
+                BodyMode::RigidLinear => physics_server_2d::BodyMode::RIGID_LINEAR,
+            })
+            .unwrap_or(physics_server_2d::BodyMode::STATIC)
     }
 
     fn body_add_shape(&mut self, body: Rid, shape: Rid, transform: Transform2D, disabled: bool) {
@@ -1008,18 +1362,23 @@ impl IPhysicsServer2DExtension for EvolvePhysicsServer {
     }
 
     fn body_get_shape_count(&self, body: Rid) -> i32 {
-        self.bodies.get(&body).map(|b| b.shapes.len() as i32).unwrap_or(0)
+        self.bodies
+            .get(&body)
+            .map(|b| b.shapes.len() as i32)
+            .unwrap_or(0)
     }
 
     fn body_get_shape(&self, body: Rid, shape_idx: i32) -> Rid {
-        self.bodies.get(&body)
+        self.bodies
+            .get(&body)
             .and_then(|b| b.shapes.get(shape_idx as usize))
             .map(|e| e.shape_rid)
             .unwrap_or(Rid::Invalid)
     }
 
     fn body_get_shape_transform(&self, body: Rid, shape_idx: i32) -> Transform2D {
-        self.bodies.get(&body)
+        self.bodies
+            .get(&body)
             .and_then(|b| b.shapes.get(shape_idx as usize))
             .map(|e| e.transform)
             .unwrap_or(Transform2D::IDENTITY)
@@ -1033,7 +1392,13 @@ impl IPhysicsServer2DExtension for EvolvePhysicsServer {
         }
     }
 
-    fn body_set_shape_as_one_way_collision(&mut self, body: Rid, shape_idx: i32, enable: bool, margin: f32) {
+    fn body_set_shape_as_one_way_collision(
+        &mut self,
+        body: Rid,
+        shape_idx: i32,
+        enable: bool,
+        margin: f32,
+    ) {
         if let Some(bd) = self.bodies.get_mut(&body) {
             if let Some(entry) = bd.shapes.get_mut(shape_idx as usize) {
                 entry.one_way = enable;
@@ -1058,22 +1423,36 @@ impl IPhysicsServer2DExtension for EvolvePhysicsServer {
     }
 
     fn body_attach_object_instance_id(&mut self, body: Rid, id: u64) {
-        if let Some(bd) = self.bodies.get_mut(&body) { bd.object_instance_id = id; }
+        if let Some(bd) = self.bodies.get_mut(&body) {
+            bd.object_instance_id = id;
+        }
     }
 
     fn body_get_object_instance_id(&self, body: Rid) -> u64 {
-        self.bodies.get(&body).map(|b| b.object_instance_id).unwrap_or(0)
+        self.bodies
+            .get(&body)
+            .map(|b| b.object_instance_id)
+            .unwrap_or(0)
     }
 
     fn body_attach_canvas_instance_id(&mut self, body: Rid, id: u64) {
-        if let Some(bd) = self.bodies.get_mut(&body) { bd.canvas_instance_id = id; }
+        if let Some(bd) = self.bodies.get_mut(&body) {
+            bd.canvas_instance_id = id;
+        }
     }
 
     fn body_get_canvas_instance_id(&self, body: Rid) -> u64 {
-        self.bodies.get(&body).map(|b| b.canvas_instance_id).unwrap_or(0)
+        self.bodies
+            .get(&body)
+            .map(|b| b.canvas_instance_id)
+            .unwrap_or(0)
     }
 
-    fn body_set_continuous_collision_detection_mode(&mut self, body: Rid, mode: physics_server_2d::CcdMode) {
+    fn body_set_continuous_collision_detection_mode(
+        &mut self,
+        body: Rid,
+        mode: physics_server_2d::CcdMode,
+    ) {
         if let Some(bd) = self.bodies.get(&body) {
             if let (Some(space_rid), Some(rb_handle)) = (bd.space_rid, bd.rb_handle) {
                 if let Some(space) = self.spaces.get_mut(&space_rid) {
@@ -1085,35 +1464,58 @@ impl IPhysicsServer2DExtension for EvolvePhysicsServer {
         }
     }
 
-    fn body_get_continuous_collision_detection_mode(&self, _body: Rid) -> physics_server_2d::CcdMode {
+    fn body_get_continuous_collision_detection_mode(
+        &self,
+        _body: Rid,
+    ) -> physics_server_2d::CcdMode {
         physics_server_2d::CcdMode::DISABLED
     }
 
     fn body_set_collision_layer(&mut self, body: Rid, layer: u32) {
-        if let Some(bd) = self.bodies.get_mut(&body) { bd.collision_layer = layer; }
+        if let Some(bd) = self.bodies.get_mut(&body) {
+            bd.collision_layer = layer;
+        }
     }
 
     fn body_get_collision_layer(&self, body: Rid) -> u32 {
-        self.bodies.get(&body).map(|b| b.collision_layer).unwrap_or(0)
+        self.bodies
+            .get(&body)
+            .map(|b| b.collision_layer)
+            .unwrap_or(0)
     }
 
     fn body_set_collision_mask(&mut self, body: Rid, mask: u32) {
-        if let Some(bd) = self.bodies.get_mut(&body) { bd.collision_mask = mask; }
+        if let Some(bd) = self.bodies.get_mut(&body) {
+            bd.collision_mask = mask;
+        }
     }
 
     fn body_get_collision_mask(&self, body: Rid) -> u32 {
-        self.bodies.get(&body).map(|b| b.collision_mask).unwrap_or(0)
+        self.bodies
+            .get(&body)
+            .map(|b| b.collision_mask)
+            .unwrap_or(0)
     }
 
     fn body_set_collision_priority(&mut self, body: Rid, priority: f32) {
-        if let Some(bd) = self.bodies.get_mut(&body) { bd.collision_priority = priority; }
+        if let Some(bd) = self.bodies.get_mut(&body) {
+            bd.collision_priority = priority;
+        }
     }
 
     fn body_get_collision_priority(&self, body: Rid) -> f32 {
-        self.bodies.get(&body).map(|b| b.collision_priority).unwrap_or(1.0)
+        self.bodies
+            .get(&body)
+            .map(|b| b.collision_priority)
+            .unwrap_or(1.0)
     }
 
-    fn body_set_param(&mut self, body: Rid, param: physics_server_2d::BodyParameter, value: Variant) {
+    fn body_set_param(
+        &mut self,
+        body: Rid,
+        param: physics_server_2d::BodyParameter,
+        value: Variant,
+    ) {
         if let Some(bd) = self.bodies.get(&body) {
             if let (Some(space_rid), Some(rb_handle)) = (bd.space_rid, bd.rb_handle) {
                 if let Some(space) = self.spaces.get_mut(&space_rid) {
@@ -1149,9 +1551,15 @@ impl IPhysicsServer2DExtension for EvolvePhysicsServer {
                     if let Some(rb) = space.rigid_body_set.get(rb_handle) {
                         return match param {
                             physics_server_2d::BodyParameter::MASS => Variant::from(rb.mass()),
-                            physics_server_2d::BodyParameter::LINEAR_DAMP => Variant::from(rb.linear_damping()),
-                            physics_server_2d::BodyParameter::ANGULAR_DAMP => Variant::from(rb.angular_damping()),
-                            physics_server_2d::BodyParameter::GRAVITY_SCALE => Variant::from(rb.gravity_scale()),
+                            physics_server_2d::BodyParameter::LINEAR_DAMP => {
+                                Variant::from(rb.linear_damping())
+                            }
+                            physics_server_2d::BodyParameter::ANGULAR_DAMP => {
+                                Variant::from(rb.angular_damping())
+                            }
+                            physics_server_2d::BodyParameter::GRAVITY_SCALE => {
+                                Variant::from(rb.gravity_scale())
+                            }
                             _ => Variant::from(0.0f32),
                         };
                     }
@@ -1201,7 +1609,8 @@ impl IPhysicsServer2DExtension for EvolvePhysicsServer {
                             physics_server_2d::BodyState::TRANSFORM => {
                                 let pos = rb.translation();
                                 let rot = rb.rotation().angle();
-                                let t = Transform2D::from_angle_origin(rot, Vector2::new(pos.x, pos.y));
+                                let t =
+                                    Transform2D::from_angle_origin(rot, Vector2::new(pos.x, pos.y));
                                 Variant::from(t)
                             }
                             physics_server_2d::BodyState::LINEAR_VELOCITY => {
@@ -1319,19 +1728,29 @@ impl IPhysicsServer2DExtension for EvolvePhysicsServer {
     }
 
     fn body_set_constant_force(&mut self, body: Rid, force: Vector2) {
-        if let Some(bd) = self.bodies.get_mut(&body) { bd.constant_force = force; }
+        if let Some(bd) = self.bodies.get_mut(&body) {
+            bd.constant_force = force;
+        }
     }
 
     fn body_get_constant_force(&self, body: Rid) -> Vector2 {
-        self.bodies.get(&body).map(|b| b.constant_force).unwrap_or(Vector2::ZERO)
+        self.bodies
+            .get(&body)
+            .map(|b| b.constant_force)
+            .unwrap_or(Vector2::ZERO)
     }
 
     fn body_set_constant_torque(&mut self, body: Rid, torque: f32) {
-        if let Some(bd) = self.bodies.get_mut(&body) { bd.constant_torque = torque; }
+        if let Some(bd) = self.bodies.get_mut(&body) {
+            bd.constant_torque = torque;
+        }
     }
 
     fn body_get_constant_torque(&self, body: Rid) -> f32 {
-        self.bodies.get(&body).map(|b| b.constant_torque).unwrap_or(0.0)
+        self.bodies
+            .get(&body)
+            .map(|b| b.constant_torque)
+            .unwrap_or(0.0)
     }
 
     fn body_set_axis_velocity(&mut self, body: Rid, axis_velocity: Vector2) {
@@ -1353,54 +1772,92 @@ impl IPhysicsServer2DExtension for EvolvePhysicsServer {
 
     fn body_add_collision_exception(&mut self, _body: Rid, _excepted_body: Rid) {}
     fn body_remove_collision_exception(&mut self, _body: Rid, _excepted_body: Rid) {}
-    fn body_get_collision_exceptions(&self, _body: Rid) -> Array<Rid> { Array::new() }
+    fn body_get_collision_exceptions(&self, _body: Rid) -> Array<Rid> {
+        Array::new()
+    }
 
     fn body_set_max_contacts_reported(&mut self, body: Rid, amount: i32) {
-        if let Some(bd) = self.bodies.get_mut(&body) { bd.max_contacts_reported = amount; }
+        if let Some(bd) = self.bodies.get_mut(&body) {
+            bd.max_contacts_reported = amount;
+        }
     }
 
     fn body_get_max_contacts_reported(&self, body: Rid) -> i32 {
-        self.bodies.get(&body).map(|b| b.max_contacts_reported).unwrap_or(0)
+        self.bodies
+            .get(&body)
+            .map(|b| b.max_contacts_reported)
+            .unwrap_or(0)
     }
 
     fn body_set_contacts_reported_depth_threshold(&mut self, body: Rid, threshold: f32) {
-        if let Some(bd) = self.bodies.get_mut(&body) { bd.contacts_depth_threshold = threshold; }
+        if let Some(bd) = self.bodies.get_mut(&body) {
+            bd.contacts_depth_threshold = threshold;
+        }
     }
 
     fn body_get_contacts_reported_depth_threshold(&self, body: Rid) -> f32 {
-        self.bodies.get(&body).map(|b| b.contacts_depth_threshold).unwrap_or(0.0)
+        self.bodies
+            .get(&body)
+            .map(|b| b.contacts_depth_threshold)
+            .unwrap_or(0.0)
     }
 
     fn body_set_omit_force_integration(&mut self, body: Rid, enable: bool) {
-        if let Some(bd) = self.bodies.get_mut(&body) { bd.omit_force_integration = enable; }
+        if let Some(bd) = self.bodies.get_mut(&body) {
+            bd.omit_force_integration = enable;
+        }
     }
 
     fn body_is_omitting_force_integration(&self, body: Rid) -> bool {
-        self.bodies.get(&body).map(|b| b.omit_force_integration).unwrap_or(false)
+        self.bodies
+            .get(&body)
+            .map(|b| b.omit_force_integration)
+            .unwrap_or(false)
     }
 
     fn body_set_state_sync_callback(&mut self, body: Rid, callable: Callable) {
         if let Some(bd) = self.bodies.get_mut(&body) {
-            bd.state_sync_callback = if callable.is_valid() { Some(callable) } else { None };
+            bd.state_sync_callback = if callable.is_valid() {
+                Some(callable)
+            } else {
+                None
+            };
         }
     }
 
-    fn body_set_force_integration_callback(&mut self, body: Rid, callable: Callable, userdata: Variant) {
+    fn body_set_force_integration_callback(
+        &mut self,
+        body: Rid,
+        callable: Callable,
+        userdata: Variant,
+    ) {
         if let Some(bd) = self.bodies.get_mut(&body) {
-            bd.force_integration_callback = if callable.is_valid() { Some((callable, userdata)) } else { None };
+            bd.force_integration_callback = if callable.is_valid() {
+                Some((callable, userdata))
+            } else {
+                None
+            };
         }
     }
 
     unsafe fn body_collide_shape_rawptr(
-        &mut self, _body: Rid, _body_shape: i32, _shape: Rid, _shape_xform: Transform2D,
-        _motion: Vector2, _results: RawPtr<*mut c_void>, _result_max: i32,
+        &mut self,
+        _body: Rid,
+        _body_shape: i32,
+        _shape: Rid,
+        _shape_xform: Transform2D,
+        _motion: Vector2,
+        _results: RawPtr<*mut c_void>,
+        _result_max: i32,
         _result_count: RawPtr<*mut i32>,
     ) -> bool {
         false
     }
 
     fn body_set_pickable(&mut self, body: Rid, pickable: bool) {
-        if let Some(bd) = self.bodies.get_mut(&body) { bd.pickable = pickable; }
+        if let Some(bd) = self.bodies.get_mut(&body) {
+            bd.pickable = pickable;
+        }
     }
 
     fn body_get_direct_state(&mut self, body: Rid) -> Option<Gd<PhysicsDirectBodyState2D>> {
@@ -1415,48 +1872,75 @@ impl IPhysicsServer2DExtension for EvolvePhysicsServer {
         let linvel = rb.linvel();
         let angvel = rb.angvel();
         let mass = rb.mass();
-        let inv_inertia = 1.0 / rb.mass_properties().local_mprops.inv_principal_inertia_sqrt.powi(-2).max(f32::EPSILON);
+        let inv_inertia = 1.0
+            / rb.mass_properties()
+                .local_mprops
+                .inv_principal_inertia_sqrt
+                .powi(-2)
+                .max(f32::EPSILON);
 
         let transform = Transform2D::from_angle_origin(rot, Vector2::new(pos.x, pos.y));
 
         let inv_mass = if mass > 0.0 { 1.0 / mass } else { 0.0 };
-        let inv_inertia_val = rb.mass_properties().local_mprops.inv_principal_inertia_sqrt.powi(2);
+        let inv_inertia_val = rb
+            .mass_properties()
+            .local_mprops
+            .inv_principal_inertia_sqrt
+            .powi(2);
         let gravity = Vector2::new(space.gravity.x, space.gravity.y);
         let dt = space.integration_parameters.dt;
         let linvel_v = Vector2::new(linvel.x, linvel.y);
 
-        let state: Gd<EvolveDirectBodyState> = Gd::from_init_fn(|base| {
-            EvolveDirectBodyState {
-                base,
-                body_rid: body,
-                space_rid,
-                cached_transform: transform,
-                cached_linear_velocity: linvel_v,
-                cached_angular_velocity: angvel,
-                cached_inverse_mass: inv_mass,
-                cached_inverse_inertia: inv_inertia_val,
-                cached_total_gravity: gravity,
-                cached_constant_force: Vector2::ZERO,
-                cached_constant_torque: 0.0,
-                sleeping: false,
-                step: dt,
-            }
+        let state: Gd<EvolveDirectBodyState> = Gd::from_init_fn(|base| EvolveDirectBodyState {
+            base,
+            body_rid: body,
+            space_rid,
+            cached_transform: transform,
+            cached_linear_velocity: linvel_v,
+            cached_angular_velocity: angvel,
+            cached_inverse_mass: inv_mass,
+            cached_inverse_inertia: inv_inertia_val,
+            cached_total_gravity: gravity,
+            cached_constant_force: Vector2::ZERO,
+            cached_constant_torque: 0.0,
+            sleeping: false,
+            step: dt,
         });
         Some(state.upcast())
     }
 
     unsafe fn body_test_motion_rawptr(
-        &self, body: Rid, from: Transform2D, motion: Vector2, margin: f32,
-        _collide_separation_ray: bool, _recovery_as_collision: bool,
+        &self,
+        body: Rid,
+        from: Transform2D,
+        motion: Vector2,
+        margin: f32,
+        _collide_separation_ray: bool,
+        _recovery_as_collision: bool,
         result: RawPtr<*mut PhysicsServer2DExtensionMotionResult>,
     ) -> bool {
-        let bd = match self.bodies.get(&body) { Some(b) => b, None => return false };
-        let space_rid = match bd.space_rid { Some(r) => r, None => return false };
-        let space = match self.spaces.get(&space_rid) { Some(s) => s, None => return false };
+        let bd = match self.bodies.get(&body) {
+            Some(b) => b,
+            None => return false,
+        };
+        let space_rid = match bd.space_rid {
+            Some(r) => r,
+            None => return false,
+        };
+        let space = match self.spaces.get(&space_rid) {
+            Some(s) => s,
+            None => return false,
+        };
 
         // Get the body's first shape
-        let shape_entry = match bd.shapes.first() { Some(s) => s, None => return false };
-        let shape_data = match self.shapes.get(&shape_entry.shape_rid) { Some(s) => s, None => return false };
+        let shape_entry = match bd.shapes.first() {
+            Some(s) => s,
+            None => return false,
+        };
+        let shape_data = match self.shapes.get(&shape_entry.shape_rid) {
+            Some(s) => s,
+            None => return false,
+        };
 
         // Build a rapier shape for the cast
         let rapier_shape: rapier::SharedShape = match shape_data.shape_type {
@@ -1465,14 +1949,25 @@ impl IPhysicsServer2DExtension for EvolvePhysicsServer {
                 rapier::SharedShape::ball(radius)
             }
             ShapeType::Rectangle => {
-                let half = shape_data.data.try_to::<Vector2>().unwrap_or(Vector2::new(10.0, 10.0));
+                let half = shape_data
+                    .data
+                    .try_to::<Vector2>()
+                    .unwrap_or(Vector2::new(10.0, 10.0));
                 rapier::SharedShape::cuboid(half.x, half.y)
             }
             ShapeType::Capsule => {
                 let arr = shape_data.data.try_to::<Array<Variant>>().ok();
                 let (height, radius) = if let Some(ref a) = arr {
-                    let h: f32 = if a.len() > 0 { a.at(0).try_to::<f32>().unwrap_or(20.0) } else { 20.0 };
-                    let r: f32 = if a.len() > 1 { a.at(1).try_to::<f32>().unwrap_or(10.0) } else { 10.0 };
+                    let h: f32 = if a.len() > 0 {
+                        a.at(0).try_to::<f32>().unwrap_or(20.0)
+                    } else {
+                        20.0
+                    };
+                    let r: f32 = if a.len() > 1 {
+                        a.at(1).try_to::<f32>().unwrap_or(10.0)
+                    } else {
+                        10.0
+                    };
                     (h, r)
                 } else {
                     (20.0, 10.0)
@@ -1492,7 +1987,9 @@ impl IPhysicsServer2DExtension for EvolvePhysicsServer {
             ShapeType::ConvexPolygon => {
                 let points = shape_data.data.try_to::<PackedVector2Array>().ok();
                 if let Some(pts) = points {
-                    let rapier_pts: Vec<rapier::Point<f32>> = pts.as_slice().iter()
+                    let rapier_pts: Vec<rapier::Point<f32>> = pts
+                        .as_slice()
+                        .iter()
                         .map(|p| rapier::Point::new(p.x, p.y))
                         .collect();
                     if let Some(shape) = rapier::SharedShape::convex_hull(&rapier_pts) {
@@ -1512,10 +2009,8 @@ impl IPhysicsServer2DExtension for EvolvePhysicsServer {
         let origin_x = from.origin.x + shape_xf.origin.x;
         let origin_y = from.origin.y + shape_xf.origin.y;
         let rotation = from.rotation();
-        let shape_iso = rapier::Isometry::new(
-            rapier::Vector::new(origin_x, origin_y),
-            rotation as f32,
-        );
+        let shape_iso =
+            rapier::Isometry::new(rapier::Vector::new(origin_x, origin_y), rotation as f32);
 
         let motion_len = (motion.x * motion.x + motion.y * motion.y).sqrt();
         if motion_len < 1.0e-6 {
@@ -1562,7 +2057,12 @@ impl IPhysicsServer2DExtension for EvolvePhysicsServer {
                 let collider = space.collider_set.get(collider_handle);
                 let collider_body_handle = collider.and_then(|c| c.parent());
                 let collider_body_rid = collider_body_handle.and_then(|rbh| {
-                    self.bodies.iter().find(|(_, bd)| bd.rb_handle == Some(rbh) && bd.space_rid == Some(space_rid)).map(|(r, _)| *r)
+                    self.bodies
+                        .iter()
+                        .find(|(_, bd)| {
+                            bd.rb_handle == Some(rbh) && bd.space_rid == Some(space_rid)
+                        })
+                        .map(|(r, _)| *r)
                 });
                 let collider_instance_id = collider_body_rid
                     .and_then(|r| self.bodies.get(&r))
@@ -1578,7 +2078,9 @@ impl IPhysicsServer2DExtension for EvolvePhysicsServer {
                 r.collision_safe_fraction = toi_frac;
                 r.collision_unsafe_fraction = toi_frac;
                 r.collider_velocity = Vector2::ZERO;
-                r.collider_id = godot::classes::native::ObjectId { id: collider_instance_id };
+                r.collider_id = godot::classes::native::ObjectId {
+                    id: collider_instance_id,
+                };
                 r.collider = collider_body_rid.unwrap_or(Rid::Invalid);
                 r.collider_shape = 0;
                 r.collision_local_shape = 0;
@@ -1598,44 +2100,112 @@ impl IPhysicsServer2DExtension for EvolvePhysicsServer {
 
     fn joint_clear(&mut self, _joint: Rid) {}
 
-    fn joint_set_param(&mut self, _joint: Rid, _param: physics_server_2d::JointParam, _value: f32) {}
-    fn joint_get_param(&self, _joint: Rid, _param: physics_server_2d::JointParam) -> f32 { 0.0 }
+    fn joint_set_param(&mut self, _joint: Rid, _param: physics_server_2d::JointParam, _value: f32) {
+    }
+    fn joint_get_param(&self, _joint: Rid, _param: physics_server_2d::JointParam) -> f32 {
+        0.0
+    }
     fn joint_disable_collisions_between_bodies(&mut self, _joint: Rid, _disable: bool) {}
-    fn joint_is_disabled_collisions_between_bodies(&self, _joint: Rid) -> bool { false }
+    fn joint_is_disabled_collisions_between_bodies(&self, _joint: Rid) -> bool {
+        false
+    }
 
     fn joint_make_pin(&mut self, _joint: Rid, _anchor: Vector2, _body_a: Rid, _body_b: Rid) {}
-    fn joint_make_groove(&mut self, _joint: Rid, _a_groove1: Vector2, _a_groove2: Vector2, _b_anchor: Vector2, _body_a: Rid, _body_b: Rid) {}
-    fn joint_make_damped_spring(&mut self, _joint: Rid, _anchor_a: Vector2, _anchor_b: Vector2, _body_a: Rid, _body_b: Rid) {}
+    fn joint_make_groove(
+        &mut self,
+        _joint: Rid,
+        _a_groove1: Vector2,
+        _a_groove2: Vector2,
+        _b_anchor: Vector2,
+        _body_a: Rid,
+        _body_b: Rid,
+    ) {
+    }
+    fn joint_make_damped_spring(
+        &mut self,
+        _joint: Rid,
+        _anchor_a: Vector2,
+        _anchor_b: Vector2,
+        _body_a: Rid,
+        _body_b: Rid,
+    ) {
+    }
 
-    fn pin_joint_set_flag(&mut self, _joint: Rid, _flag: physics_server_2d::PinJointFlag, _enabled: bool) {}
-    fn pin_joint_get_flag(&self, _joint: Rid, _flag: physics_server_2d::PinJointFlag) -> bool { false }
-    fn pin_joint_set_param(&mut self, _joint: Rid, _param: physics_server_2d::PinJointParam, _value: f32) {}
-    fn pin_joint_get_param(&self, _joint: Rid, _param: physics_server_2d::PinJointParam) -> f32 { 0.0 }
-    fn damped_spring_joint_set_param(&mut self, _joint: Rid, _param: physics_server_2d::DampedSpringParam, _value: f32) {}
-    fn damped_spring_joint_get_param(&self, _joint: Rid, _param: physics_server_2d::DampedSpringParam) -> f32 { 0.0 }
-    fn joint_get_type(&self, _joint: Rid) -> physics_server_2d::JointType { physics_server_2d::JointType::PIN }
+    fn pin_joint_set_flag(
+        &mut self,
+        _joint: Rid,
+        _flag: physics_server_2d::PinJointFlag,
+        _enabled: bool,
+    ) {
+    }
+    fn pin_joint_get_flag(&self, _joint: Rid, _flag: physics_server_2d::PinJointFlag) -> bool {
+        false
+    }
+    fn pin_joint_set_param(
+        &mut self,
+        _joint: Rid,
+        _param: physics_server_2d::PinJointParam,
+        _value: f32,
+    ) {
+    }
+    fn pin_joint_get_param(&self, _joint: Rid, _param: physics_server_2d::PinJointParam) -> f32 {
+        0.0
+    }
+    fn damped_spring_joint_set_param(
+        &mut self,
+        _joint: Rid,
+        _param: physics_server_2d::DampedSpringParam,
+        _value: f32,
+    ) {
+    }
+    fn damped_spring_joint_get_param(
+        &self,
+        _joint: Rid,
+        _param: physics_server_2d::DampedSpringParam,
+    ) -> f32 {
+        0.0
+    }
+    fn joint_get_type(&self, _joint: Rid) -> physics_server_2d::JointType {
+        physics_server_2d::JointType::PIN
+    }
 
     // ── Global lifecycle ─────────────────────────────────────────────────
 
     fn free_rid(&mut self, rid: Rid) {
         // Try removing from each collection
-        if self.shapes.remove(&rid).is_some() { return; }
-        if self.areas.remove(&rid).is_some() { return; }
-        if self.joints.remove(&rid).is_some() { return; }
+        if self.shapes.remove(&rid).is_some() {
+            return;
+        }
+        if self.areas.remove(&rid).is_some() {
+            return;
+        }
+        if self.joints.remove(&rid).is_some() {
+            return;
+        }
         if let Some(bd) = self.bodies.remove(&rid) {
             // Clean up rapier body
             if let (Some(space_rid), Some(rb_handle)) = (bd.space_rid, bd.rb_handle) {
                 if let Some(space) = self.spaces.get_mut(&space_rid) {
-                    let colliders: Vec<_> = space.rigid_body_set
+                    let colliders: Vec<_> = space
+                        .rigid_body_set
                         .get(rb_handle)
                         .map(|rb| rb.colliders().to_vec())
                         .unwrap_or_default();
                     for ch in colliders {
-                        space.collider_set.remove(ch, &mut space.island_manager, &mut space.rigid_body_set, true);
+                        space.collider_set.remove(
+                            ch,
+                            &mut space.island_manager,
+                            &mut space.rigid_body_set,
+                            true,
+                        );
                     }
                     space.rigid_body_set.remove(
-                        rb_handle, &mut space.island_manager, &mut space.collider_set,
-                        &mut space.impulse_joint_set, &mut space.multibody_joint_set, true,
+                        rb_handle,
+                        &mut space.island_manager,
+                        &mut space.collider_set,
+                        &mut space.impulse_joint_set,
+                        &mut space.multibody_joint_set,
+                        true,
                     );
                 }
             }
@@ -1653,7 +2223,9 @@ impl IPhysicsServer2DExtension for EvolvePhysicsServer {
     }
 
     fn step(&mut self, step: f32) {
-        if !self.active { return; }
+        if !self.active {
+            return;
+        }
 
         // Drain write-back queue from DirectBodyState
         {
@@ -1663,7 +2235,11 @@ impl IPhysicsServer2DExtension for EvolvePhysicsServer {
                     BodyWriteBack::CentralImpulse { body, impulse } => {
                         self.body_apply_central_impulse(body, impulse);
                     }
-                    BodyWriteBack::Impulse { body, impulse, position } => {
+                    BodyWriteBack::Impulse {
+                        body,
+                        impulse,
+                        position,
+                    } => {
                         self.body_apply_impulse(body, impulse, position);
                     }
                     BodyWriteBack::TorqueImpulse { body, impulse } => {
@@ -1672,28 +2248,53 @@ impl IPhysicsServer2DExtension for EvolvePhysicsServer {
                     BodyWriteBack::CentralForce { body, force } => {
                         self.body_apply_central_force(body, force);
                     }
-                    BodyWriteBack::Force { body, force, position } => {
+                    BodyWriteBack::Force {
+                        body,
+                        force,
+                        position,
+                    } => {
                         self.body_apply_force(body, force, position);
                     }
                     BodyWriteBack::Torque { body, torque } => {
                         self.body_apply_torque(body, torque);
                     }
                     BodyWriteBack::LinearVelocity { body, velocity } => {
-                        self.body_set_state(body, physics_server_2d::BodyState::LINEAR_VELOCITY, Variant::from(velocity));
+                        self.body_set_state(
+                            body,
+                            physics_server_2d::BodyState::LINEAR_VELOCITY,
+                            Variant::from(velocity),
+                        );
                     }
                     BodyWriteBack::AngularVelocity { body, velocity } => {
-                        self.body_set_state(body, physics_server_2d::BodyState::ANGULAR_VELOCITY, Variant::from(velocity));
+                        self.body_set_state(
+                            body,
+                            physics_server_2d::BodyState::ANGULAR_VELOCITY,
+                            Variant::from(velocity),
+                        );
                     }
                     BodyWriteBack::Transform { body, transform } => {
-                        self.body_set_state(body, physics_server_2d::BodyState::TRANSFORM, Variant::from(transform));
+                        self.body_set_state(
+                            body,
+                            physics_server_2d::BodyState::TRANSFORM,
+                            Variant::from(transform),
+                        );
                     }
                 }
             }
         }
 
         // Apply constant forces to all bodies
-        let body_entries: Vec<(Option<Rid>, Option<rapier::RigidBodyHandle>, Vector2, f32)> = self.bodies.values()
-            .map(|bd| (bd.space_rid, bd.rb_handle, bd.constant_force, bd.constant_torque))
+        let body_entries: Vec<(Option<Rid>, Option<rapier::RigidBodyHandle>, Vector2, f32)> = self
+            .bodies
+            .values()
+            .map(|bd| {
+                (
+                    bd.space_rid,
+                    bd.rb_handle,
+                    bd.constant_force,
+                    bd.constant_torque,
+                )
+            })
             .collect();
 
         for (space_rid, rb_handle, force, torque) in body_entries {

@@ -1,7 +1,7 @@
+use crate::{BodyHandle, Circle, CollisionEvent, Rectangle, RigidBody, Shape, World, WorldBuilder};
+use nalgebra::{Point2, Vector2};
 use pyo3::prelude::*;
 use pyo3::types::PyDict;
-use nalgebra::{Point2, Vector2};
-use crate::{World, WorldBuilder, RigidBody, Shape, Circle, Rectangle, BodyHandle, CollisionEvent};
 
 /// Python wrapper for the physics World
 #[pyclass(name = "World")]
@@ -19,28 +19,25 @@ impl PyWorld {
             .gravity(Vector2::new(gravity_x, gravity_y))
             .timestep(timestep)
             .build();
-            
+
         PyWorld { world }
     }
-    
+
     /// Set gravity
     fn set_gravity(&mut self, x: f32, y: f32) {
         self.world.set_gravity(Vector2::new(x, y));
     }
-    
+
     /// Add a circular body
     fn add_circle(&mut self, x: f32, y: f32, radius: f32, vx: f32, vy: f32) -> u64 {
-        let body = RigidBody::new(
-            Point2::new(x, y),
-            Shape::Circle(Circle::new(radius)),
-        )
-        .with_velocity(Vector2::new(vx, vy));
-        
+        let body = RigidBody::new(Point2::new(x, y), Shape::Circle(Circle::new(radius)))
+            .with_velocity(Vector2::new(vx, vy));
+
         let handle = self.world.add_body(&body);
         // Return the raw handle value for Python
         unsafe { std::mem::transmute(handle) }
     }
-    
+
     /// Add a rectangular body
     fn add_rectangle(&mut self, x: f32, y: f32, width: f32, height: f32, vx: f32, vy: f32) -> u64 {
         let body = RigidBody::new(
@@ -48,73 +45,80 @@ impl PyWorld {
             Shape::Rectangle(Rectangle::from_size(width, height)),
         )
         .with_velocity(Vector2::new(vx, vy));
-        
+
         let handle = self.world.add_body(&body);
         unsafe { std::mem::transmute(handle) }
     }
-    
+
     /// Remove a body
     fn remove_body(&mut self, handle: u64) -> bool {
         let handle: BodyHandle = unsafe { std::mem::transmute(handle) };
         self.world.remove_body(handle).is_some()
     }
-    
+
     /// Get body position
     fn get_position(&self, handle: u64) -> Option<(f32, f32)> {
         let handle: BodyHandle = unsafe { std::mem::transmute(handle) };
-        self.world.body_position(handle)
-            .map(|p| (p.x, p.y))
+        self.world.body_position(handle).map(|p| (p.x, p.y))
     }
-    
+
     /// Set body position
     fn set_position(&mut self, handle: u64, x: f32, y: f32) -> bool {
         let handle: BodyHandle = unsafe { std::mem::transmute(handle) };
-        self.world.set_body_position(handle, Point2::new(x, y)).is_some()
+        self.world
+            .set_body_position(handle, Point2::new(x, y))
+            .is_some()
     }
-    
+
     /// Get body velocity
     fn get_velocity(&self, handle: u64) -> Option<(f32, f32)> {
         let handle: BodyHandle = unsafe { std::mem::transmute(handle) };
-        self.world.body_velocity(handle)
-            .map(|v| (v.x, v.y))
+        self.world.body_velocity(handle).map(|v| (v.x, v.y))
     }
-    
+
     /// Set body velocity
     fn set_velocity(&mut self, handle: u64, vx: f32, vy: f32) -> bool {
         let handle: BodyHandle = unsafe { std::mem::transmute(handle) };
-        self.world.set_body_velocity(handle, Vector2::new(vx, vy)).is_some()
+        self.world
+            .set_body_velocity(handle, Vector2::new(vx, vy))
+            .is_some()
     }
-    
+
     /// Apply force to a body
     fn apply_force(&mut self, handle: u64, fx: f32, fy: f32) -> bool {
         let handle: BodyHandle = unsafe { std::mem::transmute(handle) };
-        self.world.apply_force(handle, Vector2::new(fx, fy)).is_some()
+        self.world
+            .apply_force(handle, Vector2::new(fx, fy))
+            .is_some()
     }
-    
+
     /// Apply impulse to a body
     fn apply_impulse(&mut self, handle: u64, ix: f32, iy: f32) -> bool {
         let handle: BodyHandle = unsafe { std::mem::transmute(handle) };
-        self.world.apply_impulse(handle, Vector2::new(ix, iy)).is_some()
+        self.world
+            .apply_impulse(handle, Vector2::new(ix, iy))
+            .is_some()
     }
-    
+
     /// Step the simulation
     fn step(&mut self, dt: f32) {
         self.world.step(dt);
     }
-    
+
     /// Get collision events from last step
     fn get_collision_events(&self) -> Vec<PyCollisionEvent> {
-        self.world.collision_events()
+        self.world
+            .collision_events()
             .iter()
             .map(|e| PyCollisionEvent::from(e))
             .collect()
     }
-    
+
     /// Clear all bodies
     fn clear(&mut self) {
         self.world.clear();
     }
-    
+
     /// Get the fixed timestep
     #[getter]
     fn timestep(&self) -> f32 {
@@ -168,15 +172,15 @@ impl From<&CollisionEvent> for PyCollisionEvent {
 fn evolve_physics_python(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyWorld>()?;
     m.add_class::<PyCollisionEvent>()?;
-    
+
     // Add version info
     m.add("__version__", "0.1.0")?;
-    
+
     // Add some constants
     let physics_constants = PyDict::new(m.py());
     physics_constants.set_item("DEFAULT_GRAVITY", -9.81)?;
     physics_constants.set_item("DEFAULT_TIMESTEP", 1.0 / 60.0)?;
     m.add("constants", physics_constants)?;
-    
+
     Ok(())
 }
