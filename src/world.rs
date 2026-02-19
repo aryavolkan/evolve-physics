@@ -26,6 +26,12 @@ pub struct World {
     accumulator: f32,
 }
 
+impl Default for World {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl World {
     /// Create a new physics world with default settings
     pub fn new() -> Self {
@@ -87,10 +93,7 @@ impl World {
         let colliders: Vec<_> = self
             .rigid_body_set
             .get(rb_handle)?
-            .colliders()
-            .iter()
-            .copied()
-            .collect();
+            .colliders().to_vec();
 
         for collider_handle in colliders {
             self.collider_to_body.remove(&collider_handle);

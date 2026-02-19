@@ -269,6 +269,7 @@ struct JointData {
 pub struct EvolveDirectBodyState {
     base: Base<PhysicsDirectBodyState2DExtension>,
     body_rid: Rid,
+    #[allow(dead_code)] // Reserved for future use
     space_rid: Rid,
     cached_transform: Transform2D,
     cached_linear_velocity: Vector2,
@@ -647,7 +648,7 @@ impl EvolvePhysicsServer {
                 // Godot capsule data: [height, radius] array
                 let arr = shape.data.try_to::<Array<Variant>>().ok();
                 let (height, radius) = if let Some(ref a) = arr {
-                    let h: f32 = if a.len() > 0 {
+                    let h: f32 = if !a.is_empty() {
                         a.at(0).try_to::<f32>().unwrap_or(20.0)
                     } else {
                         20.0
@@ -1872,7 +1873,7 @@ impl IPhysicsServer2DExtension for EvolvePhysicsServer {
         let linvel = rb.linvel();
         let angvel = rb.angvel();
         let mass = rb.mass();
-        let inv_inertia = 1.0
+        let _inv_inertia = 1.0
             / rb.mass_properties()
                 .local_mprops
                 .inv_principal_inertia_sqrt
@@ -1958,7 +1959,7 @@ impl IPhysicsServer2DExtension for EvolvePhysicsServer {
             ShapeType::Capsule => {
                 let arr = shape_data.data.try_to::<Array<Variant>>().ok();
                 let (height, radius) = if let Some(ref a) = arr {
-                    let h: f32 = if a.len() > 0 {
+                    let h: f32 = if !a.is_empty() {
                         a.at(0).try_to::<f32>().unwrap_or(20.0)
                     } else {
                         20.0
@@ -2010,7 +2011,7 @@ impl IPhysicsServer2DExtension for EvolvePhysicsServer {
         let origin_y = from.origin.y + shape_xf.origin.y;
         let rotation = from.rotation();
         let shape_iso =
-            rapier::Isometry::new(rapier::Vector::new(origin_x, origin_y), rotation as f32);
+            rapier::Isometry::new(rapier::Vector::new(origin_x, origin_y), rotation);
 
         let motion_len = (motion.x * motion.x + motion.y * motion.y).sqrt();
         if motion_len < 1.0e-6 {

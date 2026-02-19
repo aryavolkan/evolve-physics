@@ -15,6 +15,12 @@ impl BodyHandle {
     }
 }
 
+impl Default for BodyHandle {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 /// A rigid body that can be added to the physics world
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RigidBody {
