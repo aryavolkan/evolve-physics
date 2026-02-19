@@ -17,7 +17,7 @@ use godot::classes::native::PhysicsServer2DExtensionMotionResult;
 use rapier2d::prelude as rapier;
 use std::collections::HashMap;
 use std::ffi::c_void;
-// (no additional imports needed)
+use std::sync::{Arc, Mutex};
 
 // ── Entry point ──────────────────────────────────────────────────────────────
 
@@ -26,7 +26,70 @@ struct EvolvePhysicsExtension;
 #[gdextension]
 unsafe impl ExtensionLibrary for EvolvePhysicsExtension {}
 
+// ── Write-back queue for DirectBodyState ─────────────────────────────────────
+
+/// Pending write-back from EvolveDirectBodyState to the physics server
+#[derive(Debug)]
+enum BodyWriteBack {
+    CentralImpulse { body: Rid, impulse: Vector2 },
+    Impulse { body: Rid, impulse: Vector2, position: Vector2 },
+    TorqueImpulse { body: Rid, impulse: f32 },
+    CentralForce { body: Rid, force: Vector2 },
+    Force { body: Rid, force: Vector2, position: Vector2 },
+    Torque { body: Rid, torque: f32 },
+    LinearVelocity { body: Rid, velocity: Vector2 },
+    AngularVelocity { body: Rid, velocity: f32 },
+    Transform { body: Rid, transform: Transform2D },
+}
+
+static WRITE_BACK_QUEUE: std::sync::LazyLock<Mutex<Vec<BodyWriteBack>>> =
+    std::sync::LazyLock::new(|| Mutex::new(Vec::new()));
+
 // ── Data structures ──────────────────────────────────────────────────────────
+
+/// A full Rapier2D physics space (world)
+/// Collects collision and contact force events from Rapier
+struct CollisionEventCollector {
+    collision_events: Arc<Mutex<Vec<rapier::CollisionEvent>>>,
+    contact_force_events: Arc<Mutex<Vec<rapier::ContactForceEvent>>>,
+}
+
+impl CollisionEventCollector {
+    fn new() -> Self {
+        Self {
+            collision_events: Arc::new(Mutex::new(Vec::new())),
+            contact_force_events: Arc::new(Mutex::new(Vec::new())),
+        }
+    }
+
+    fn clear(&self) {
+        self.collision_events.lock().unwrap().clear();
+        self.contact_force_events.lock().unwrap().clear();
+    }
+}
+
+impl rapier::EventHandler for CollisionEventCollector {
+    fn handle_collision_event(
+        &self,
+        _bodies: &rapier::RigidBodySet,
+        _colliders: &rapier::ColliderSet,
+        event: rapier::CollisionEvent,
+        _contact_pair: Option<&rapier::ContactPair>,
+    ) {
+        self.collision_events.lock().unwrap().push(event);
+    }
+
+    fn handle_contact_force_event(
+        &self,
+        _dt: f32,
+        _bodies: &rapier::RigidBodySet,
+        _colliders: &rapier::ColliderSet,
+        _contact_pair: &rapier::ContactPair,
+        _total_force_magnitude: f32,
+    ) {
+        // Could collect force events here if needed
+    }
+}
 
 /// A full Rapier2D physics space (world)
 struct RapierSpace {
@@ -42,6 +105,7 @@ struct RapierSpace {
     multibody_joint_set: rapier::MultibodyJointSet,
     ccd_solver: rapier::CCDSolver,
     query_pipeline: rapier::QueryPipeline,
+    event_collector: CollisionEventCollector,
     active: bool,
 }
 
@@ -63,12 +127,14 @@ impl RapierSpace {
             multibody_joint_set: rapier::MultibodyJointSet::new(),
             ccd_solver: rapier::CCDSolver::new(),
             query_pipeline: rapier::QueryPipeline::new(),
+            event_collector: CollisionEventCollector::new(),
             active: false,
         }
     }
 
     fn step(&mut self, dt: f32) {
         self.integration_parameters.dt = dt;
+        self.event_collector.clear();
         self.physics_pipeline.step(
             &self.gravity,
             &self.integration_parameters,
@@ -82,7 +148,7 @@ impl RapierSpace {
             &mut self.ccd_solver,
             None,
             &(),
-            &(),
+            &self.event_collector,
         );
     }
 }
@@ -218,23 +284,44 @@ impl IPhysicsDirectBodyState2DExtension for EvolveDirectBodyState {
     fn get_center_of_mass_local(&self) -> Vector2 { Vector2::ZERO }
     fn get_inverse_mass(&self) -> f32 { self.cached_inverse_mass }
     fn get_inverse_inertia(&self) -> f32 { self.cached_inverse_inertia }
-    fn set_linear_velocity(&mut self, velocity: Vector2) { self.cached_linear_velocity = velocity; }
+    fn set_linear_velocity(&mut self, velocity: Vector2) {
+        self.cached_linear_velocity = velocity;
+        WRITE_BACK_QUEUE.lock().unwrap().push(BodyWriteBack::LinearVelocity { body: self.body_rid, velocity });
+    }
     fn get_linear_velocity(&self) -> Vector2 { self.cached_linear_velocity }
-    fn set_angular_velocity(&mut self, velocity: f32) { self.cached_angular_velocity = velocity; }
+    fn set_angular_velocity(&mut self, velocity: f32) {
+        self.cached_angular_velocity = velocity;
+        WRITE_BACK_QUEUE.lock().unwrap().push(BodyWriteBack::AngularVelocity { body: self.body_rid, velocity });
+    }
     fn get_angular_velocity(&self) -> f32 { self.cached_angular_velocity }
-    fn set_transform(&mut self, transform: Transform2D) { self.cached_transform = transform; }
+    fn set_transform(&mut self, transform: Transform2D) {
+        self.cached_transform = transform;
+        WRITE_BACK_QUEUE.lock().unwrap().push(BodyWriteBack::Transform { body: self.body_rid, transform });
+    }
     fn get_transform(&self) -> Transform2D { self.cached_transform }
     fn get_velocity_at_local_position(&self, local_position: Vector2) -> Vector2 {
         // v = linear_vel + angular_vel × r (2D cross product)
         let perp = Vector2::new(-local_position.y, local_position.x) * self.cached_angular_velocity;
         self.cached_linear_velocity + perp
     }
-    fn apply_central_impulse(&mut self, _impulse: Vector2) { /* TODO: write back */ }
-    fn apply_impulse(&mut self, _impulse: Vector2, _position: Vector2) { /* TODO: write back */ }
-    fn apply_torque_impulse(&mut self, _impulse: f32) { /* TODO: write back */ }
-    fn apply_central_force(&mut self, _force: Vector2) { /* TODO: write back */ }
-    fn apply_force(&mut self, _force: Vector2, _position: Vector2) { /* TODO: write back */ }
-    fn apply_torque(&mut self, _torque: f32) { /* TODO: write back */ }
+    fn apply_central_impulse(&mut self, impulse: Vector2) {
+        WRITE_BACK_QUEUE.lock().unwrap().push(BodyWriteBack::CentralImpulse { body: self.body_rid, impulse });
+    }
+    fn apply_impulse(&mut self, impulse: Vector2, position: Vector2) {
+        WRITE_BACK_QUEUE.lock().unwrap().push(BodyWriteBack::Impulse { body: self.body_rid, impulse, position });
+    }
+    fn apply_torque_impulse(&mut self, impulse: f32) {
+        WRITE_BACK_QUEUE.lock().unwrap().push(BodyWriteBack::TorqueImpulse { body: self.body_rid, impulse });
+    }
+    fn apply_central_force(&mut self, force: Vector2) {
+        WRITE_BACK_QUEUE.lock().unwrap().push(BodyWriteBack::CentralForce { body: self.body_rid, force });
+    }
+    fn apply_force(&mut self, force: Vector2, position: Vector2) {
+        WRITE_BACK_QUEUE.lock().unwrap().push(BodyWriteBack::Force { body: self.body_rid, force, position });
+    }
+    fn apply_torque(&mut self, torque: f32) {
+        WRITE_BACK_QUEUE.lock().unwrap().push(BodyWriteBack::Torque { body: self.body_rid, torque });
+    }
     fn add_constant_central_force(&mut self, force: Vector2) { self.cached_constant_force += force; }
     fn add_constant_force(&mut self, force: Vector2, _position: Vector2) { self.cached_constant_force += force; }
     fn add_constant_torque(&mut self, torque: f32) { self.cached_constant_torque += torque; }
@@ -352,17 +439,66 @@ impl EvolvePhysicsServer {
                 Some(rapier::ColliderBuilder::cuboid(half.x, half.y).build())
             }
             ShapeType::Capsule => {
-                // Capsule data is [height, radius] as array or dict
-                // In Godot it's a 3-element array: [height, radius] or dict {height, radius}
-                let height = 20.0_f32;
-                let radius = 10.0_f32;
+                // Godot capsule data: [height, radius] array
+                let arr = shape.data.try_to::<Array<Variant>>().ok();
+                let (height, radius) = if let Some(ref a) = arr {
+                    let h: f32 = if a.len() > 0 { a.at(0).try_to::<f32>().unwrap_or(20.0) } else { 20.0 };
+                    let r: f32 = if a.len() > 1 { a.at(1).try_to::<f32>().unwrap_or(10.0) } else { 10.0 };
+                    (h, r)
+                } else {
+                    (20.0, 10.0)
+                };
                 Some(rapier::ColliderBuilder::capsule_y(height / 2.0, radius).build())
             }
             ShapeType::Segment => {
-                // Segment is two Vector2 points stored as Rect2 or array
-                None // TODO: implement segment collider
+                // Segment data is a Rect2: position = point A, size = point B
+                let rect = shape.data.try_to::<godot::builtin::Rect2>().ok();
+                if let Some(r) = rect {
+                    let a = rapier::Point::new(r.position.x, r.position.y);
+                    let b = rapier::Point::new(r.position.x + r.size.x, r.position.y + r.size.y);
+                    Some(rapier::ColliderBuilder::segment(a, b).build())
+                } else {
+                    None
+                }
             }
-            _ => None, // WorldBoundary, ConvexPolygon, ConcavePolygon, SeparationRay — TODO
+            ShapeType::ConvexPolygon => {
+                // ConvexPolygon data is a PackedVector2Array of points
+                let points = shape.data.try_to::<PackedVector2Array>().ok();
+                if let Some(pts) = points {
+                    let rapier_pts: Vec<rapier::Point<f32>> = pts.as_slice().iter()
+                        .map(|p| rapier::Point::new(p.x, p.y))
+                        .collect();
+                    if rapier_pts.len() >= 3 {
+                        rapier::ColliderBuilder::convex_hull(&rapier_pts)
+                            .map(|b| b.build())
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                }
+            }
+            ShapeType::ConcavePolygon => {
+                // ConcavePolygon data is a PackedVector2Array of segment pairs (p0,p1,p2,p3,...)
+                let points = shape.data.try_to::<PackedVector2Array>().ok();
+                if let Some(pts) = points {
+                    let slice = pts.as_slice();
+                    if slice.len() >= 4 && slice.len() % 2 == 0 {
+                        let vertices: Vec<rapier::Point<f32>> = slice.iter()
+                            .map(|p| rapier::Point::new(p.x, p.y))
+                            .collect();
+                        let indices: Vec<[u32; 2]> = (0..vertices.len() / 2)
+                            .map(|i| [i as u32 * 2, i as u32 * 2 + 1])
+                            .collect();
+                        Some(rapier::ColliderBuilder::polyline(vertices, Some(indices)).build())
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                }
+            }
+            _ => None, // WorldBoundary, SeparationRay — no Rapier equivalent
         }
     }
 
@@ -1333,7 +1469,6 @@ impl IPhysicsServer2DExtension for EvolvePhysicsServer {
                 rapier::SharedShape::cuboid(half.x, half.y)
             }
             ShapeType::Capsule => {
-                // Godot capsule data: [height, radius] array
                 let arr = shape_data.data.try_to::<Array<Variant>>().ok();
                 let (height, radius) = if let Some(ref a) = arr {
                     let h: f32 = if a.len() > 0 { a.at(0).try_to::<f32>().unwrap_or(20.0) } else { 20.0 };
@@ -1343,6 +1478,31 @@ impl IPhysicsServer2DExtension for EvolvePhysicsServer {
                     (20.0, 10.0)
                 };
                 rapier::SharedShape::capsule_y(height / 2.0, radius)
+            }
+            ShapeType::Segment => {
+                let rect = shape_data.data.try_to::<godot::builtin::Rect2>().ok();
+                if let Some(r) = rect {
+                    let a = rapier::Point::new(r.position.x, r.position.y);
+                    let b = rapier::Point::new(r.position.x + r.size.x, r.position.y + r.size.y);
+                    rapier::SharedShape::segment(a, b)
+                } else {
+                    return false;
+                }
+            }
+            ShapeType::ConvexPolygon => {
+                let points = shape_data.data.try_to::<PackedVector2Array>().ok();
+                if let Some(pts) = points {
+                    let rapier_pts: Vec<rapier::Point<f32>> = pts.as_slice().iter()
+                        .map(|p| rapier::Point::new(p.x, p.y))
+                        .collect();
+                    if let Some(shape) = rapier::SharedShape::convex_hull(&rapier_pts) {
+                        shape
+                    } else {
+                        return false;
+                    }
+                } else {
+                    return false;
+                }
             }
             _ => return false,
         };
@@ -1494,6 +1654,42 @@ impl IPhysicsServer2DExtension for EvolvePhysicsServer {
 
     fn step(&mut self, step: f32) {
         if !self.active { return; }
+
+        // Drain write-back queue from DirectBodyState
+        {
+            let mut queue = WRITE_BACK_QUEUE.lock().unwrap();
+            for wb in queue.drain(..) {
+                match wb {
+                    BodyWriteBack::CentralImpulse { body, impulse } => {
+                        self.body_apply_central_impulse(body, impulse);
+                    }
+                    BodyWriteBack::Impulse { body, impulse, position } => {
+                        self.body_apply_impulse(body, impulse, position);
+                    }
+                    BodyWriteBack::TorqueImpulse { body, impulse } => {
+                        self.body_apply_torque_impulse(body, impulse);
+                    }
+                    BodyWriteBack::CentralForce { body, force } => {
+                        self.body_apply_central_force(body, force);
+                    }
+                    BodyWriteBack::Force { body, force, position } => {
+                        self.body_apply_force(body, force, position);
+                    }
+                    BodyWriteBack::Torque { body, torque } => {
+                        self.body_apply_torque(body, torque);
+                    }
+                    BodyWriteBack::LinearVelocity { body, velocity } => {
+                        self.body_set_state(body, physics_server_2d::BodyState::LINEAR_VELOCITY, Variant::from(velocity));
+                    }
+                    BodyWriteBack::AngularVelocity { body, velocity } => {
+                        self.body_set_state(body, physics_server_2d::BodyState::ANGULAR_VELOCITY, Variant::from(velocity));
+                    }
+                    BodyWriteBack::Transform { body, transform } => {
+                        self.body_set_state(body, physics_server_2d::BodyState::TRANSFORM, Variant::from(transform));
+                    }
+                }
+            }
+        }
 
         // Apply constant forces to all bodies
         let body_entries: Vec<(Option<Rid>, Option<rapier::RigidBodyHandle>, Vector2, f32)> = self.bodies.values()
