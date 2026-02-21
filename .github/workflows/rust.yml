@@ -10,7 +10,7 @@ env:
 
 jobs:
   check:
-    runs-on: [self-hosted, macos, arm64]
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
