@@ -4,8 +4,8 @@ compatibility_minimum = 4.4
 reloadable = true
 
 [libraries]
-linux.debug.x86_64 = "res://../../Projects/evolve-physics/target/release/libevolve_physics.so"
-linux.release.x86_64 = "res://../../Projects/evolve-physics/target/release/libevolve_physics.so"
+linux.debug.x86_64 = "res://../evolve-physics/target/release/libevolve_physics.so"
+linux.release.x86_64 = "res://../evolve-physics/target/release/libevolve_physics.so"
 windows.debug.x86_64 = "res://../../Projects/evolve-physics/target/release/evolve_physics.dll"
 windows.release.x86_64 = "res://../../Projects/evolve-physics/target/release/evolve_physics.dll"
 macos.debug = "res://../../Projects/evolve-physics/target/release/libevolve_physics.dylib"
