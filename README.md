@@ -159,16 +159,44 @@ The engine is built on top of Rapier2D, providing:
 ## Development
 
 ```bash
+# Build (default includes Godot integration)
+cargo build --release
+
+# Build Python module only
+cargo build --features python --no-default-features --release
+
+# Build Godot plugin only
+cargo build --features godot --no-default-features --release
+
+# Build + install Python module
+maturin develop              # for development
+maturin build --release      # for distribution wheel
+
 # Run tests
 cargo test
 
-# Build with optimizations
-cargo build --release
-
-# Build Python module
-maturin develop  # for development
-maturin build    # for distribution
+# Lint
+cargo fmt --check
+cargo clippy -- -D warnings
 ```
+
+### Module Breakdown
+
+| File | Purpose |
+|------|---------|
+| `world.rs` | Manages Rapier2D pipeline, body/collider tracking, `step()` fixed-timestep advance |
+| `body.rs` | `RigidBody` struct, `BodyHandle` unique IDs, static/dynamic constructors |
+| `shapes.rs` | `Circle` and `Rectangle` shape definitions |
+| `collision.rs` | `CollisionEvent`, `ContactPair`, `Contact` structs |
+| `python.rs` | PyO3 `PyWorld` class wrapping the full API |
+| `godot_plugin.rs` | `PhysicsServer2DExtension` (shapes, bodies, forces; ray casting stubbed) |
+
+### Design Decisions
+
+- **Fixed timestep** for deterministic, reproducible ML simulations
+- **Bodies never sleep** (`can_sleep(false)`) to maintain determinism
+- **Builder pattern** for World configuration (`WorldBuilder`)
+- **Release profile**: `opt-level=3`, LTO, `codegen-units=1` for maximum performance
 
 ## License
 
