@@ -2,6 +2,7 @@ use crate::{BodyHandle, CollisionEvent, RigidBody, Shape};
 use nalgebra::{Point2, Vector2};
 use rapier2d::prelude::*;
 use std::collections::HashMap;
+use std::sync::Mutex;
 
 /// The main physics world that manages all bodies and simulates physics
 pub struct World {
@@ -20,6 +21,7 @@ pub struct World {
 
     // Custom tracking
     body_map: HashMap<BodyHandle, RigidBodyHandle>,
+    rb_to_body: HashMap<RigidBodyHandle, BodyHandle>,
     collider_to_body: HashMap<ColliderHandle, RigidBodyHandle>,
     collision_events: Vec<CollisionEvent>,
     timestep: f32,
@@ -67,9 +69,13 @@ impl World {
 
         // Create collider based on shape
         let collider = match body.shape() {
-            Shape::Circle(circle) => ColliderBuilder::ball(circle.radius).density(1.0).build(),
+            Shape::Circle(circle) => ColliderBuilder::ball(circle.radius)
+                .density(1.0)
+                .active_events(ActiveEvents::COLLISION_EVENTS)
+                .build(),
             Shape::Rectangle(rect) => ColliderBuilder::cuboid(rect.half_width, rect.half_height)
                 .density(1.0)
+                .active_events(ActiveEvents::COLLISION_EVENTS)
                 .build(),
         };
 
@@ -80,6 +86,7 @@ impl World {
         // Track the mappings
         let handle = BodyHandle::new();
         self.body_map.insert(handle, rb_handle);
+        self.rb_to_body.insert(rb_handle, handle);
         self.collider_to_body.insert(collider_handle, rb_handle);
 
         handle
@@ -88,6 +95,7 @@ impl World {
     /// Remove a body from the world
     pub fn remove_body(&mut self, handle: BodyHandle) -> Option<()> {
         let rb_handle = self.body_map.remove(&handle)?;
+        self.rb_to_body.remove(&rb_handle);
 
         // Remove colliders first
         let colliders: Vec<_> = self.rigid_body_set.get(rb_handle)?.colliders().to_vec();
@@ -178,6 +186,8 @@ impl World {
         // Clear previous collision events
         self.collision_events.clear();
 
+        let event_collector = CollisionEventCollector::new();
+
         // Step the simulation
         self.physics_pipeline.step(
             &self.gravity,
@@ -192,12 +202,43 @@ impl World {
             &mut self.ccd_solver,
             None,
             &(),
-            &(),
+            &event_collector,
         );
 
-        // Collect collision events after the step
-        // Note: For now, we'll leave collision event collection for a future enhancement
-        // The basic physics simulation works without it
+        // Process collected collision events
+        for event in event_collector.into_events() {
+            let ch1 = event.collider1();
+            let ch2 = event.collider2();
+
+            let rb1 = match self.collider_to_body.get(&ch1) {
+                Some(h) => *h,
+                None => continue,
+            };
+            let rb2 = match self.collider_to_body.get(&ch2) {
+                Some(h) => *h,
+                None => continue,
+            };
+            let bh1 = match self.rb_to_body.get(&rb1) {
+                Some(h) => *h,
+                None => continue,
+            };
+            let bh2 = match self.rb_to_body.get(&rb2) {
+                Some(h) => *h,
+                None => continue,
+            };
+
+            if event.started() {
+                self.collision_events.push(CollisionEvent::started(
+                    bh1,
+                    bh2,
+                    Point2::origin(),
+                    Vector2::zeros(),
+                    0.0,
+                ));
+            } else {
+                self.collision_events.push(CollisionEvent::stopped(bh1, bh2));
+            }
+        }
     }
 
     /// Get collision events from the last step
@@ -216,6 +257,7 @@ impl World {
         }
 
         self.collision_events.clear();
+        self.rb_to_body.clear();
         self.accumulator = 0.0;
     }
 }
@@ -267,6 +309,7 @@ impl WorldBuilder {
             multibody_joint_set: MultibodyJointSet::new(),
             ccd_solver: CCDSolver::new(),
             body_map: HashMap::new(),
+            rb_to_body: HashMap::new(),
             collider_to_body: HashMap::new(),
             collision_events: Vec::new(),
             timestep: self.timestep,
@@ -281,9 +324,44 @@ impl Default for WorldBuilder {
     }
 }
 
-// TODO: Implement collision event handling
-// For now, collision detection is available through the narrow_phase after each step
-// but we don't expose events through our API yet
+/// Collects raw Rapier collision events during a physics step.
+struct CollisionEventCollector {
+    events: Mutex<Vec<rapier2d::geometry::CollisionEvent>>,
+}
+
+impl CollisionEventCollector {
+    fn new() -> Self {
+        Self {
+            events: Mutex::new(Vec::new()),
+        }
+    }
+
+    fn into_events(self) -> Vec<rapier2d::geometry::CollisionEvent> {
+        self.events.into_inner().unwrap()
+    }
+}
+
+impl rapier2d::pipeline::EventHandler for CollisionEventCollector {
+    fn handle_collision_event(
+        &self,
+        _bodies: &RigidBodySet,
+        _colliders: &ColliderSet,
+        event: rapier2d::geometry::CollisionEvent,
+        _contact_pair: Option<&rapier2d::geometry::ContactPair>,
+    ) {
+        self.events.lock().unwrap().push(event);
+    }
+
+    fn handle_contact_force_event(
+        &self,
+        _dt: f32,
+        _bodies: &RigidBodySet,
+        _colliders: &ColliderSet,
+        _contact_pair: &rapier2d::geometry::ContactPair,
+        _total_force_magnitude: f32,
+    ) {
+    }
+}
 
 #[cfg(test)]
 mod tests {

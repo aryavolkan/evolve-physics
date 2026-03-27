@@ -1342,8 +1342,9 @@ impl IPhysicsServer2DExtension for EvolvePhysicsServer {
                 one_way_margin: 0.0,
                 collider_handle: None,
             });
-            // TODO: actually create collider in rapier space if body is in a space
         }
+        // Create the collider in rapier immediately if the body is already in a space
+        self.sync_body_colliders(body);
     }
 
     fn body_set_shape(&mut self, body: Rid, shape_idx: i32, shape: Rid) {
